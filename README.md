@@ -9,7 +9,6 @@
 - Uses **Selenium** to extract data dynamically.
 - Sends notifications to **Discord** when charging starts, stops, and after 5 minutes: charging rate.
 - **Prevents false positives** by only detecting charging above **1.0 kW**.
-- Stores last state in `/tmp/wallbox_state.txt` to avoid duplicate alerts.
 - **Handles missing values gracefully**.
 
 ## Setup & Installation  
@@ -65,16 +64,16 @@ Save and exit.
 📢 Discord Notifications
 ```
 ⚡ 02.02.24, 14:35: charging started.
-⚡ charging power: 3.55 kW
+⏳ charging power: 3.55 kW
 🔋 02.02.24, 15:05: charging stopped.
-⚡ consumed energy: 3.38 kWh
+🔍 consumed energy: 3.38 kWh
 ```
 
 ### **📝 Logging**
 
 Check logs in:
 ```bash
-cat /home/pi/wallbox_monitor.log
+cat /home/pi/wallbox-monitor/wallbox_monitor.log
 ```
 
 ### **🛠 Troubleshooting**
