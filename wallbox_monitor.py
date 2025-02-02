@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# v1.0.3
+# shellrecharge-wallbox-monitor - by bjoerrrn
+# github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
+# This script is licensed under GNU GPL version 3.0 or above
+
+import os
 import logging
 import time
 import re
@@ -10,20 +16,33 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from logging.handlers import RotatingFileHandler
 
-LOG_FILE = "/home/pi/wallbox-monitor/wallbox_monitor.log"
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Get script directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Load configuration from credentials file
-CONFIG_FILE = "/home/pi/wallbox-monitor/wallbox_monitor.credo"
+# Logging configuration with rotation
+LOG_FILE = os.path.join(SCRIPT_DIR, "wallbox_monitor.log")
+log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0)
+log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+
+# Load configuration file
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "wallbox_monitor.credo")
 config = configparser.ConfigParser()
-config.read(CONFIG_FILE)
+
+if not os.path.exists(CONFIG_FILE):
+    logging.error("Configuration file missing. Ensure 'wallbox_monitor.credo' exists.")
+    print("Error: Missing 'wallbox_monitor.credo'.")
+    raise SystemExit("Error: Missing 'wallbox_monitor.credo'.")
 
 try:
+    config.read(CONFIG_FILE)
     WALLBOX_URL = config.get("CREDENTIALS", "WALLBOX_URL")
     DISCORD_WEBHOOK_URL = config.get("CREDENTIALS", "DISCORD_WEBHOOK_URL")
-except (configparser.NoSectionError, configparser.NoOptionError, FileNotFoundError) as e:
+except (configparser.NoSectionError, configparser.NoOptionError) as e:
     logging.error(f"Configuration error: {e}")
+    print(f"Error loading credentials: {e}")
     raise SystemExit("Error loading credentials. Check 'wallbox_monitor.credo'.")
 
 STATE_FILE = "/tmp/wallbox_state.txt"
@@ -79,6 +98,7 @@ def fetch_charging_status(driver):
 
     except Exception as e:
         logging.error(f"Error fetching charging status: {e}")
+        print(f"Error fetching charging status: {e}")
         return None, None
 
 
@@ -99,8 +119,10 @@ def send_discord_notification(message):
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
         logging.info(f"Sent Discord notification: {message}")
+        print(f"Sent Discord notification: {message}")
     except requests.RequestException as e:
         logging.error(f"Error sending Discord notification: {e}")
+        print(f"Error sending Discord notification: {e}")
 
 def get_last_state():
     """Reads the last state and charging start time from the state file."""
@@ -113,10 +135,14 @@ def get_last_state():
                     timestamp = float(parts[1]) if parts[1] != "None" else 0.0
                     power = float(parts[2]) if parts[2] != "None" else 0.0
                     return "charging", timestamp, power
-                except ValueError:
+                except ValueError as e:
+                    logging.error(f"Value Error: {e}")
+                    print(f"Value Error: {e}")
                     return "idle", None, None  # Reset to idle if parsing fails
             return data, None, None  # "idle"
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        with open(STATE_FILE, "w") as f:
+            f.write("idle")
         return "idle", None, None
 
 def save_last_state(state, charging_power=0.0):
@@ -136,6 +162,7 @@ def main():
         charging_rate, consumed_energy_wh = fetch_charging_status(driver)
 
         print(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {consumed_energy_wh}")
+        logging.info(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {consumed_energy_wh}")
 
         if charging_rate is not None:
             new_state = "charging" if charging_rate >= 1.0 else "idle"
@@ -144,16 +171,19 @@ def main():
             timestamp = german_timestamp()
 
             print(f"🔄 Last State: {last_state}, New State: {new_state}")
+            logging.info(f"🔄 Last State: {last_state}, New State: {new_state}")
 
             if last_state != new_state:  # Only trigger on state change
                 if new_state == "charging":
                     message = f"⚡ {timestamp}: charging started."
                     print(f"📢 Sending Discord Notification: {message}")
+                    logging.info(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
                     save_last_state(new_state, charging_rate)  # Store start time & power
                 else:
                     message = f"🔋 {timestamp}: charging stopped."
                     print(f"📢 Sending Discord Notification: {message}")
+                    logging.info(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
                     save_last_state(new_state)  # Reset state
 
@@ -161,19 +191,22 @@ def main():
             elif new_state == "charging" and start_time is not None:
                 elapsed_time = time.time() - start_time
                 print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
+                logging.info(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
 
-                if elapsed_time >= 300:  # 300 seconds = 5 minutes
+                if elapsed_time >= 300 and elapsed_time < 359:  # 300 seconds = 5 minutes
                     latest_charging_rate, _ = fetch_charging_status(driver)  # Fetch latest power
-                    message = f"⚡ charging power: {latest_charging_rate:.2f} kW"
+                    message = f"⏳ charging power: {latest_charging_rate:.2f} kW"
                     print(f"📢 Sending Discord Notification: {message}")
+                    logging.info(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
-                    save_last_state("charging")  # Prevent duplicate notifications
+                    save_last_state("charging")
 
             # If charging stopped, send a separate consumption message
             if last_state == "charging" and new_state == "idle" and consumed_energy_wh is not None:
                 formatted_energy = format_energy(consumed_energy_wh)
-                message = f"⚡ consumed energy: {formatted_energy}"
+                message = f"🔍 consumed energy: {formatted_energy}"
                 print(f"📢 Sending Discord Notification: {message}")
+                logging.info(f"📢 Sending Discord Notification: {message}")
                 send_discord_notification(message)
 
     finally:
