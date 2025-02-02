@@ -97,6 +97,8 @@ python3 test_consumed_debug.py
 
 Feel free to open issues or pull requests to improve the script! 🚀
 
+if you want to contact me directly, feel free to do so via discord: https://discordapp.com/users/371404709262786561
+
 ### **📜 License**
 
-This project is open-source under the MIT License.
+This project is open-source under the [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) License.
