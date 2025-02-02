@@ -1,6 +1,6 @@
 # Wallbox Monitor  
 
-**A Python script for monitoring a local wallbox charging station and sending notifications via Discord.**  
+**A Python script for monitoring a local wallbox charging station from NewMotion / Shell Recharge and sending notifications via Discord.**  
 
 ## Features
 - Reads charging rate and consumed energy from a web-based wallbox interface.
