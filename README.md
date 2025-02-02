@@ -7,7 +7,7 @@
 ## Features
 - Reads charging rate and consumed energy from a web-based wallbox interface.
 - Uses **Selenium** to extract data dynamically.
-- Sends notifications to **Discord** when charging starts, stops, and after 5 minutes.
+- Sends notifications to **Discord** when charging starts, stops, and after 5 minutes: charging rate.
 - **Prevents false positives** by only detecting charging above **1.0 kW**.
 - Stores last state in `/tmp/wallbox_state.txt` to avoid duplicate alerts.
 - **Handles missing values gracefully**.
