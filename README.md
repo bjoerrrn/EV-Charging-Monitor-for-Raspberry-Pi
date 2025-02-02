@@ -30,7 +30,7 @@ cd wallbox-monitor/
 
 ### **3️⃣ Configure Your Script**
 
-Open wallbox_monitor.py and set:
+Open wallbox_monitor.credo and set:
 -	Wallbox URL: Change
 ```bash
 WALLBOX_URL = "http://<your-local-wallbox-ip>:12800/user/user.html"
