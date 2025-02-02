@@ -63,10 +63,10 @@ Save and exit.
 
 📢 Discord Notifications
 ```
-⚡ 02.02.24, 14:35: charging started.
-⏳ charging power: 3.55 kW
-🔋 02.02.24, 15:05: charging stopped.
-🔍 consumed energy: 3.38 kWh
+⚡ 02.02.25, 22:20: charging started.
+⏳ charging power: 2.30 kW
+🔋 02.02.25, 22:30: charging stopped.
+🔍 consumed energy: 1.25 kWh
 ```
 
 ### **📝 Logging**
