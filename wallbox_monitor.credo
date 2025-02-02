@@ -1,0 +1,3 @@
+[CREDENTIALS]
+WALLBOX_URL = http://your-local-wallbox-ip:12800/user/user.html
+DISCORD_WEBHOOK_URL = https://your-discord-webhook-url
