@@ -98,12 +98,13 @@ def get_last_state():
             data = f.read().strip()
             if data.startswith("charging:"):
                 parts = data.split(":")
-                try:
-                    timestamp = float(parts[1]) if parts[1] != "None" else 0.0
-                    power = float(parts[2]) if parts[2] != "None" else 0.0
-                    return "charging", timestamp, power
-                except ValueError:
-                    return "idle", None, None  # Reset to idle if parsing fails
+                if len(parts) == 3:  # Ensure the correct format
+                    try:
+                        timestamp = float(parts[1]) if parts[1] != "None" else 0.0
+                        power = float(parts[2]) if parts[2] != "None" else 0.0
+                        return "charging", timestamp, power  # Now correctly returns stored power
+                    except ValueError:
+                        return "idle", None, None  # Reset to idle if parsing fails
             return data, None, None  # "idle"
     except FileNotFoundError:
         return "idle", None, None
@@ -113,8 +114,10 @@ def save_last_state(state, charging_power=0.0):
     with open(STATE_FILE, "w") as f:
         if state == "charging":
             charging_power = charging_power if charging_power is not None else 0.0  # Ensure valid number
+            logging.info(f"Saving state: charging, power={charging_power:.2f}")  # Log value being saved
             f.write(f"charging:{time.time()}:{charging_power:.2f}")  # Store timestamp + power
         else:
+            logging.info("Saving state: idle")
             f.write("idle")  # Reset if charging stops
 
 def main():
@@ -139,6 +142,7 @@ def main():
                     message = f"⚡ {timestamp}: charging started."
                     print(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
+                    print(f"📌 DEBUG: Charging Rate to Store: {charging_rate}")
                     save_last_state(new_state, charging_rate)  # Store start time & power
                 else:
                     message = f"🔋 {timestamp}: charging stopped."
@@ -152,7 +156,8 @@ def main():
                 print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
 
                 if elapsed_time >= 300:  # 300 seconds = 5 minutes
-                    message = f"⚡ charging power: {stored_power:.2f} kW"
+                    latest_charging_rate, _ = fetch_charging_status(driver)  # Fetch latest power
+                    message = f"⚡ charging power: {latest_charging_rate:.2f} kW"
                     print(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
                     save_last_state("charging")  # Prevent duplicate notifications
