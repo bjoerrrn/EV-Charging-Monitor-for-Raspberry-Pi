@@ -11,11 +11,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-LOG_FILE = "/home/pi/wallbox_monitor.log"
+LOG_FILE = "/home/pi/wallbox-monitor/wallbox_monitor.log"
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load configuration from credentials file
-CONFIG_FILE = "wallbox_monitor.credo"
+CONFIG_FILE = "/home/pi/wallbox-monitor/wallbox_monitor.credo"
 config = configparser.ConfigParser()
 config.read(CONFIG_FILE)
 
