@@ -1,3 +1,5 @@
+![stars](https://img.shields.io/github/stars/bjoerrrn/shellrecharge-wallbox-monitor) ![last_commit](https://img.shields.io/github/last-commit/bjoerrrn/shellrecharge-wallbox-monitor)
+
 # Wallbox Monitor  
 
 **A Python script for monitoring a local wallbox charging station from NewMotion / Shell Recharge and sending notifications via Discord.**  
