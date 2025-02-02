@@ -123,9 +123,9 @@ def send_discord_notification(message):
     except requests.RequestException as e:
         logging.error(f"Error sending Discord notification: {e}")
         print(f"Error sending Discord notification: {e}")
-
+        
 def get_last_state():
-    """Reads the last state and charging start time from the state file."""
+    """Reads the last state, charging start time, power, and notified flag from the state file."""
     try:
         with open(STATE_FILE, "r") as f:
             data = f.read().strip()
@@ -134,23 +134,24 @@ def get_last_state():
                 try:
                     timestamp = float(parts[1]) if parts[1] != "None" else 0.0
                     power = float(parts[2]) if parts[2] != "None" else 0.0
-                    return "charging", timestamp, power
+                    notified = parts[3] == "1" if len(parts) > 3 else False
+                    return "charging", timestamp, power, notified
                 except ValueError as e:
                     logging.error(f"Value Error: {e}")
                     print(f"Value Error: {e}")
-                    return "idle", None, None  # Reset to idle if parsing fails
-            return data, None, None  # "idle"
+                    return "idle", None, None, False
+            return data, None, None, False
     except FileNotFoundError as e:
         with open(STATE_FILE, "w") as f:
             f.write("idle")
-        return "idle", None, None
-
-def save_last_state(state, charging_power=0.0):
-    """Saves the current state and timestamp if charging starts."""
+        return "idle", None, None, False
+            
+def save_last_state(state, charging_power=0.0, notified=False):
+    """Saves the current state, timestamp, power, and notified flag."""
     with open(STATE_FILE, "w") as f:
         if state == "charging":
             charging_power = charging_power if charging_power is not None else 0.0  # Ensure valid number
-            f.write(f"charging:{time.time()}:{charging_power:.2f}")  # Store timestamp + power
+            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}") # Store timestamp + power + notified
         else:
             f.write("idle")  # Reset if charging stops
 
@@ -166,7 +167,7 @@ def main():
 
         if charging_rate is not None:
             new_state = "charging" if charging_rate >= 1.0 else "idle"
-            last_state, start_time, stored_power = get_last_state()
+            last_state, start_time, stored_power, notified = get_last_state()
 
             timestamp = german_timestamp()
 
@@ -179,7 +180,7 @@ def main():
                     print(f"📢 Sending Discord Notification: {message}")
                     logging.info(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
-                    save_last_state(new_state, charging_rate)  # Store start time & power
+                    save_last_state(new_state, charging_rate, notified=False)  # Store start time & power
                 else:
                     message = f"🔋 {timestamp}: charging stopped."
                     print(f"📢 Sending Discord Notification: {message}")
@@ -188,19 +189,19 @@ def main():
                     save_last_state(new_state)  # Reset state
 
             # If charging, check if 5 minutes have passed
-            elif new_state == "charging" and start_time is not None:
+            elif new_state == "charging" and start_time is not None and not notified:
                 elapsed_time = time.time() - start_time
                 print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
                 logging.info(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
 
-                if elapsed_time >= 300 and elapsed_time < 359:  # 300 seconds = 5 minutes
+                if elapsed_time >= 300:  # 300 seconds = 5 minutes
                     latest_charging_rate, _ = fetch_charging_status(driver)  # Fetch latest power
                     message = f"⏳ charging power: {latest_charging_rate:.2f} kW"
                     print(f"📢 Sending Discord Notification: {message}")
                     logging.info(f"📢 Sending Discord Notification: {message}")
                     send_discord_notification(message)
-                    save_last_state("charging")
-
+                    save_last_state("charging", latest_charging_rate, notified=True)
+                    
             # If charging stopped, send a separate consumption message
             if last_state == "charging" and new_state == "idle" and consumed_energy_wh is not None:
                 formatted_energy = format_energy(consumed_energy_wh)
