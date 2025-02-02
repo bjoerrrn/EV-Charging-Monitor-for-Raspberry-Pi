@@ -8,6 +8,11 @@ from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+LOG_FILE = "/home/pi/wallbox_monitor.log"
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load configuration from credentials file
 CONFIG_FILE = "wallbox_monitor.credo"
@@ -21,10 +26,7 @@ except (configparser.NoSectionError, configparser.NoOptionError, FileNotFoundErr
     logging.error(f"Configuration error: {e}")
     raise SystemExit("Error loading credentials. Check 'wallbox_monitor.credo'.")
 
-LOG_FILE = "/home/pi/wallbox_monitor.log"
 STATE_FILE = "/tmp/wallbox_state.txt"
-
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def get_browser():
     """Starts a headless browser session using Chromium."""
@@ -36,42 +38,59 @@ def get_browser():
     return webdriver.Chrome(service=service, options=options)
 
 def fetch_charging_status(driver):
-    """Fetch charging rate and consumed energy from the Wallbox."""
+    """Uses Selenium to get the dynamically updated charging rate and consumed energy."""
     try:
         driver.get(WALLBOX_URL)
 
         charging_rate = None
         consumed_energy_wh = None
 
-        for _ in range(30):  # Retry for up to 30 seconds
+        # Wait up to 30 seconds for both values to be populated
+        for _ in range(30):  # Retry every second for up to 30 seconds
             try:
-                charging_text = driver.find_element(By.ID, "chargingRate").get_attribute("value").strip()
+                # Get charging rate
+                charging_element = driver.find_element(By.ID, "chargingRate")
+                charging_text = charging_element.get_attribute("value").strip()
                 if charging_text:
-                    match = re.search(r"([\d.]+)\s*kw", charging_text)
-                    if match:
-                        charging_rate = float(match.group(1))
+                    match_charging = re.search(r"([\d.]+)\s*kw", charging_text)
+                    if match_charging:
+                        charging_rate = float(match_charging.group(1))
 
-                consumed_text = driver.find_element(By.ID, "consumed").get_attribute("value").strip()
+                # Get consumed energy
+                consumed_element = driver.find_element(By.ID, "consumed")
+                consumed_text = consumed_element.get_attribute("value").strip()
                 if consumed_text:
-                    match = re.search(r"([\d.]+)\s*(wh|kWh)", consumed_text)
-                    if match:
-                        consumed_energy_wh = float(match.group(1))
+                    match_consumed = re.search(r"([\d.]+)\s*(wh|kWh)", consumed_text)
+                    if match_consumed:
+                        consumed_energy_wh = float(match_consumed.group(1))
                         if "kWh" in consumed_text:
                             consumed_energy_wh *= 1000  # Convert kWh to Wh
 
+                # Exit loop early if both values are found
                 if charging_rate is not None and consumed_energy_wh is not None:
                     break
 
             except Exception:
-                pass  # Retry
+                pass  # Ignore errors and retry
 
-            time.sleep(1)
+            time.sleep(1)  # Wait 1 second before retrying
 
         return charging_rate, consumed_energy_wh
 
     except Exception as e:
         logging.error(f"Error fetching charging status: {e}")
         return None, None
+
+
+def format_energy(wh):
+    """Converts Wh to kWh if necessary and formats output with two decimal places."""
+    if wh is None:
+        return "0.00 kWh"
+    return f"{wh / 1000:.2f} kWh" if wh >= 1000 else f"{wh:.2f} Wh"
+
+def german_timestamp():
+    """Returns the current time in German short format: DD.MM.YY, HH:MM."""
+    return datetime.now().strftime("%d.%m.%y, %H:%M")
 
 def send_discord_notification(message):
     """Sends a notification to Discord."""
@@ -83,16 +102,79 @@ def send_discord_notification(message):
     except requests.RequestException as e:
         logging.error(f"Error sending Discord notification: {e}")
 
-def main():
-    """Main execution function to monitor the Wallbox status."""
-    driver = get_browser()
+def get_last_state():
+    """Reads the last state and charging start time from the state file."""
     try:
-        charging_rate, _ = fetch_charging_status(driver)
+        with open(STATE_FILE, "r") as f:
+            data = f.read().strip()
+            if data.startswith("charging:"):
+                parts = data.split(":")
+                try:
+                    timestamp = float(parts[1]) if parts[1] != "None" else 0.0
+                    power = float(parts[2]) if parts[2] != "None" else 0.0
+                    return "charging", timestamp, power
+                except ValueError:
+                    return "idle", None, None  # Reset to idle if parsing fails
+            return data, None, None  # "idle"
+    except FileNotFoundError:
+        return "idle", None, None
+
+def save_last_state(state, charging_power=0.0):
+    """Saves the current state and timestamp if charging starts."""
+    with open(STATE_FILE, "w") as f:
+        if state == "charging":
+            charging_power = charging_power if charging_power is not None else 0.0  # Ensure valid number
+            f.write(f"charging:{time.time()}:{charging_power:.2f}")  # Store timestamp + power
+        else:
+            f.write("idle")  # Reset if charging stops
+
+def main():
+    """Checks wallbox status and triggers notifications when state changes."""
+    driver = get_browser()
+
+    try:
+        charging_rate, consumed_energy_wh = fetch_charging_status(driver)
+
+        print(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {consumed_energy_wh}")
 
         if charging_rate is not None:
-            message = f"⚡ Charging Rate: {charging_rate:.2f} kW"
-            print(f"📢 Sending Discord Notification: {message}")
-            send_discord_notification(message)
+            new_state = "charging" if charging_rate >= 1.0 else "idle"
+            last_state, start_time, stored_power = get_last_state()
+
+            timestamp = german_timestamp()
+
+            print(f"🔄 Last State: {last_state}, New State: {new_state}")
+
+            if last_state != new_state:  # Only trigger on state change
+                if new_state == "charging":
+                    message = f"⚡ {timestamp}: charging started."
+                    print(f"📢 Sending Discord Notification: {message}")
+                    send_discord_notification(message)
+                    save_last_state(new_state, charging_rate)  # Store start time & power
+                else:
+                    message = f"🔋 {timestamp}: charging stopped."
+                    print(f"📢 Sending Discord Notification: {message}")
+                    send_discord_notification(message)
+                    save_last_state(new_state)  # Reset state
+
+            # If charging, check if 5 minutes have passed
+            elif new_state == "charging" and start_time is not None:
+                elapsed_time = time.time() - start_time
+                print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
+
+                if elapsed_time >= 300:  # 300 seconds = 5 minutes
+                    latest_charging_rate, _ = fetch_charging_status(driver)  # Fetch latest power
+                    message = f"⚡ charging power: {latest_charging_rate:.2f} kW"
+                    print(f"📢 Sending Discord Notification: {message}")
+                    send_discord_notification(message)
+                    save_last_state("charging")  # Prevent duplicate notifications
+
+            # If charging stopped, send a separate consumption message
+            if last_state == "charging" and new_state == "idle" and consumed_energy_wh is not None:
+                formatted_energy = format_energy(consumed_energy_wh)
+                message = f"⚡ consumed energy: {formatted_energy}"
+                print(f"📢 Sending Discord Notification: {message}")
+                send_discord_notification(message)
 
     finally:
         driver.quit()
