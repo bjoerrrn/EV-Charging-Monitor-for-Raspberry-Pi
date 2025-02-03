@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.0.3
+# v1.0.4
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from logging.handlers import RotatingFileHandler
+import requests
 
 # Get script directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -62,7 +63,7 @@ def fetch_charging_status(driver):
         driver.get(WALLBOX_URL)
 
         charging_rate = None
-        consumed_energy_wh = None
+        total_energy_wh = None
 
         # Wait up to 30 seconds for both values to be populated
         for _ in range(30):  # Retry every second for up to 30 seconds
@@ -81,12 +82,12 @@ def fetch_charging_status(driver):
                 if consumed_text:
                     match_consumed = re.search(r"([\d.]+)\s*(wh|kWh)", consumed_text)
                     if match_consumed:
-                        consumed_energy_wh = float(match_consumed.group(1))
+                        total_energy_wh = float(match_consumed.group(1))
                         if "kWh" in consumed_text:
-                            consumed_energy_wh *= 1000  # Convert kWh to Wh
+                            total_energy_wh *= 1000  # Convert kWh to Wh
 
                 # Exit loop early if both values are found
-                if charging_rate is not None and consumed_energy_wh is not None:
+                if charging_rate is not None and total_energy_wh is not None:
                     break
 
             except Exception:
@@ -94,7 +95,7 @@ def fetch_charging_status(driver):
 
             time.sleep(1)  # Wait 1 second before retrying
 
-        return charging_rate, consumed_energy_wh
+        return charging_rate, total_energy_wh
 
     except Exception as e:
         logging.error(f"Error fetching charging status: {e}")
@@ -107,6 +108,13 @@ def format_energy(wh):
     if wh is None:
         return "0.00 kWh"
     return f"{wh / 1000:.2f} kWh" if wh >= 1000 else f"{wh:.2f} Wh"
+    
+def format_duration(seconds):
+    """Formats seconds into hours and minutes, e.g., hh:mm."""
+    minutes = int(seconds // 60)
+    hours = minutes // 60
+    minutes %= 60
+    return f"{hours}:{minutes:02d} h"
 
 def german_timestamp():
     """Returns the current time in German short format: DD.MM.YY, HH:MM."""
@@ -114,7 +122,6 @@ def german_timestamp():
 
 def send_discord_notification(message):
     """Sends a notification to Discord."""
-    import requests
     payload = {"content": message}
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
@@ -160,16 +167,17 @@ def main():
     driver = get_browser()
 
     try:
-        charging_rate, consumed_energy_wh = fetch_charging_status(driver)
+        charging_rate, total_energy_wh = fetch_charging_status(driver)
 
-        print(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {consumed_energy_wh}")
-        logging.info(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {consumed_energy_wh}")
+        print(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
+        logging.info(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
 
         if charging_rate is not None:
             new_state = "charging" if charging_rate >= 1.0 else "idle"
             last_state, start_time, stored_power, notified = get_last_state()
 
             timestamp = german_timestamp()
+            current_time = time.time()
 
             print(f"🔄 Last State: {last_state}, New State: {new_state}")
             logging.info(f"🔄 Last State: {last_state}, New State: {new_state}")
@@ -190,7 +198,7 @@ def main():
 
             # If charging, check if 5 minutes have passed
             elif new_state == "charging" and start_time is not None and not notified:
-                elapsed_time = time.time() - start_time
+                elapsed_time = current_time - start_time if start_time else 0
                 print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
                 logging.info(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
 
@@ -203,9 +211,16 @@ def main():
                     save_last_state("charging", latest_charging_rate, notified=True)
                     
             # If charging stopped, send a separate consumption message
-            if last_state == "charging" and new_state == "idle" and consumed_energy_wh is not None:
-                formatted_energy = format_energy(consumed_energy_wh)
-                message = f"🔍 consumed energy: {formatted_energy}"
+            if last_state == "charging" and new_state == "idle" and total_energy_wh is not None:
+                elapsed_time = current_time - start_time if start_time else 0
+                elapsed_formatted = format_duration(elapsed_time)
+                session_energy_wh = total_energy_wh - stored_power if stored_power is not None else total_energy_wh
+                
+                if stored_power == 0:
+                    message = f"🔍 consumed: {format_energy(session_energy_wh)} in  {elapsed_formatted}"
+                else:
+                    message = f"🔍 consumed: {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
+                
                 print(f"📢 Sending Discord Notification: {message}")
                 logging.info(f"📢 Sending Discord Notification: {message}")
                 send_discord_notification(message)
