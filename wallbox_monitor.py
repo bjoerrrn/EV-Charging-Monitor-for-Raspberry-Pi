@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.0.4
+# v1.0.5
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -216,7 +216,7 @@ def main():
                 elapsed_formatted = format_duration(elapsed_time)
                 session_energy_wh = total_energy_wh - stored_power if stored_power is not None else total_energy_wh
                 
-                if stored_power == 0:
+                if stored_power == 0 or session_energy_wh == stored_power:
                     message = f"🔍 consumed: {format_energy(session_energy_wh)} in  {elapsed_formatted}"
                 else:
                     message = f"🔍 consumed: {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
