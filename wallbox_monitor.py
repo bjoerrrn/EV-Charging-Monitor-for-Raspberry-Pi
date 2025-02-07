@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.0.5
+# v1.1.0
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from logging.handlers import RotatingFileHandler
 import requests
 
@@ -56,52 +57,77 @@ def get_browser():
     options.add_argument("--disable-dev-shm-usage")
     service = Service("/usr/lib/chromium-browser/chromedriver")
     return webdriver.Chrome(service=service, options=options)
+    
+def send_discord_notification(message):
+    """Sends a notification to Discord."""
+    payload = {"content": message}
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        logging.info(f"Sent Discord notification: {message}")
+        print(f"Sent Discord notification: {message}")
+    except requests.RequestException as e:
+        logging.error(f"Error sending Discord notification: {e}")
+        print(f"Error sending Discord notification: {e}")
 
 def fetch_charging_status(driver):
-    """Uses Selenium to get the dynamically updated charging rate and consumed energy."""
+    """Fetches charging rate and total energy from the charger."""
     try:
         driver.get(WALLBOX_URL)
-
         charging_rate = None
         total_energy_wh = None
+        last_exception = None
 
-        # Wait up to 30 seconds for both values to be populated
-        for _ in range(30):  # Retry every second for up to 30 seconds
+        # Retry every second for up to 30 seconds
+        for attempt in range(30):
             try:
-                # Get charging rate
-                charging_element = driver.find_element(By.ID, "chargingRate")
+                charging_element = WebDriverWait(driver, 2).until(
+                    EC.presence_of_element_located((By.ID, "chargingRate"))
+                )
                 charging_text = charging_element.get_attribute("value").strip()
                 if charging_text:
                     match_charging = re.search(r"([\d.]+)\s*kw", charging_text)
                     if match_charging:
                         charging_rate = float(match_charging.group(1))
 
-                # Get consumed energy
-                consumed_element = driver.find_element(By.ID, "consumed")
-                consumed_text = consumed_element.get_attribute("value").strip()
-                if consumed_text:
-                    match_consumed = re.search(r"([\d.]+)\s*(wh|kWh)", consumed_text)
-                    if match_consumed:
-                        total_energy_wh = float(match_consumed.group(1))
-                        if "kWh" in consumed_text:
-                            total_energy_wh *= 1000  # Convert kWh to Wh
+                try:
+                    consumed_element = WebDriverWait(driver, 2).until(
+                        EC.presence_of_element_located((By.ID, "consumed"))
+                    )
+                    consumed_text = consumed_element.get_attribute("value").strip()
+                    if consumed_text:
+                        match_consumed = re.search(r"([\d.]+)\s*(wh|kWh)", consumed_text)
+                        if match_consumed:
+                            total_energy_wh = float(match_consumed.group(1))
+                            if "kWh" in consumed_text:
+                                total_energy_wh *= 1000  # Convert kWh to Wh
+                except TimeoutException:
+                    total_energy_wh = None  # Energy data unavailable (cable unplugged)
+
+                # Debug logging
+                logging.debug(f"Attempt {attempt + 1}: Charging Rate = {charging_rate}, Total Energy = {total_energy_wh}")
 
                 # Exit loop early if both values are found
                 if charging_rate is not None and total_energy_wh is not None:
                     break
 
-            except Exception:
-                pass  # Ignore errors and retry
+            except (NoSuchElementException, TimeoutException) as e:
+                last_exception = e  # Store last error for later reporting
+                logging.warning(f"Attempt {attempt + 1}: Element not found or timeout - {e}")
 
-            time.sleep(1)  # Wait 1 second before retrying
+            except Exception as e:
+                last_exception = e
+                logging.error(f"Attempt {attempt + 1}: Unexpected error - {e}")
 
+            time.sleep(1)  # Wait before retrying
+
+        logging.info(f"Final Fetch - Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
         return charging_rate, total_energy_wh
 
     except Exception as e:
-        logging.error(f"Error fetching charging status: {e}")
-        print(f"Error fetching charging status: {e}")
+        fatal_message = f"🚨 ALERT: Fatal error in fetch_charging_status: {e}"
+        logging.critical(fatal_message)
+        send_discord_notification(fatal_message)
         return None, None
-
 
 def format_energy(wh):
     """Converts Wh to kWh if necessary and formats output with two decimal places."""
@@ -119,17 +145,6 @@ def format_duration(seconds):
 def german_timestamp():
     """Returns the current time in German short format: DD.MM.YY, HH:MM."""
     return datetime.now().strftime("%d.%m.%y, %H:%M")
-
-def send_discord_notification(message):
-    """Sends a notification to Discord."""
-    payload = {"content": message}
-    try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-        logging.info(f"Sent Discord notification: {message}")
-        print(f"Sent Discord notification: {message}")
-    except requests.RequestException as e:
-        logging.error(f"Error sending Discord notification: {e}")
-        print(f"Error sending Discord notification: {e}")
         
 def get_last_state():
     """Reads the last state, charging start time, power, and notified flag from the state file."""
@@ -158,72 +173,96 @@ def save_last_state(state, charging_power=0.0, notified=False):
     with open(STATE_FILE, "w") as f:
         if state == "charging":
             charging_power = charging_power if charging_power is not None else 0.0  # Ensure valid number
-            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}") # Store timestamp + power + notified
+            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}")  # Store timestamp + power + notified
+        elif state == "disconnected":  # store "disconnected"
+            f.write("disconnected")
         else:
             f.write("idle")  # Reset if charging stops
 
 def main():
-    """Checks wallbox status and triggers notifications when state changes."""
+    """Checks wallbox status, detects cable state, and triggers notifications."""
     driver = get_browser()
 
     try:
         charging_rate, total_energy_wh = fetch_charging_status(driver)
+        last_state, start_time, stored_power, notified = get_last_state()
+        timestamp = german_timestamp()
+        current_time = time.time()
 
-        print(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
-        logging.info(f"🔍 Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
+        print(f"🔍 Fetched data - Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
+        logging.debug(f"🔍 Fetched data - Charging Rate: {charging_rate}, Consumed Energy: {total_energy_wh}")
 
-        if charging_rate is not None:
+        # **Cable Connection Logic**
+        if total_energy_wh is None:
+            new_state = "disconnected"
+        else:
             new_state = "charging" if charging_rate >= 1.0 else "idle"
-            last_state, start_time, stored_power, notified = get_last_state()
 
-            timestamp = german_timestamp()
-            current_time = time.time()
+        print(f"🔄 Last State: {last_state}, New State: {new_state}")
+        logging.info(f"🔄 Last State: {last_state}, New State: {new_state}")
 
-            print(f"🔄 Last State: {last_state}, New State: {new_state}")
-            logging.info(f"🔄 Last State: {last_state}, New State: {new_state}")
+        # **Handle cable disconnection**
+        if new_state == "disconnected" and last_state != "disconnected":
+            message = f"🔌 {timestamp}: cable disconnected."
+            print(f"📢 Sending Discord Notification: {message}")
+            logging.info(message)
+            send_discord_notification(message)
+            save_last_state("disconnected")
 
-            if last_state != new_state:  # Only trigger on state change
-                if new_state == "charging":
-                    message = f"⚡ {timestamp}: charging started."
-                    print(f"📢 Sending Discord Notification: {message}")
-                    logging.info(f"📢 Sending Discord Notification: {message}")
-                    send_discord_notification(message)
-                    save_last_state(new_state, charging_rate, notified=False)  # Store start time & power
-                else:
-                    message = f"🔋 {timestamp}: charging stopped."
-                    print(f"📢 Sending Discord Notification: {message}")
-                    logging.info(f"📢 Sending Discord Notification: {message}")
-                    send_discord_notification(message)
-                    save_last_state(new_state)  # Reset state
+        # **Handle cable reconnection**
+        elif last_state == "disconnected" and new_state in ["idle", "charging"]:
+            message = f"🔌 {timestamp}: cable connected."
+            print(f"📢 Sending Discord Notification: {message}")
+            logging.info(message)
+            send_discord_notification(message)
+            save_last_state("idle")  # Reset to normal state
 
-            # If charging, check if 5 minutes have passed
-            elif new_state == "charging" and start_time is not None and not notified:
-                elapsed_time = current_time - start_time if start_time else 0
-                print(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
-                logging.info(f"⏳ Elapsed Charging Time: {elapsed_time:.2f} seconds")
+        # **Charging Started**
+        if last_state != "charging" and new_state == "charging":
+            message = f"⚡ {timestamp}: charging started."
+            print(f"📢 Sending Discord Notification: {message}")
+            logging.info(message)
+            send_discord_notification(message)
+            save_last_state(new_state, charging_rate, notified=False)
 
-                if elapsed_time >= 300:  # 300 seconds = 5 minutes
-                    latest_charging_rate, _ = fetch_charging_status(driver)  # Fetch latest power
-                    message = f"⏳ charging power: {latest_charging_rate:.2f} kW"
-                    print(f"📢 Sending Discord Notification: {message}")
-                    logging.info(f"📢 Sending Discord Notification: {message}")
-                    send_discord_notification(message)
-                    save_last_state("charging", latest_charging_rate, notified=True)
-                    
-            # If charging stopped, send a separate consumption message
-            if last_state == "charging" and new_state == "idle" and total_energy_wh is not None:
-                elapsed_time = current_time - start_time if start_time else 0
-                elapsed_formatted = format_duration(elapsed_time)
-                session_energy_wh = total_energy_wh - stored_power if stored_power is not None else total_energy_wh
-                
-                if stored_power == 0 or session_energy_wh == stored_power:
-                    message = f"🔍 consumed: {format_energy(session_energy_wh)} in  {elapsed_formatted}"
-                else:
-                    message = f"🔍 consumed: {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
-                
-                print(f"📢 Sending Discord Notification: {message}")
-                logging.info(f"📢 Sending Discord Notification: {message}")
-                send_discord_notification(message)
+        # **Charging Stopped (Re-added)**
+        if last_state == "charging" and new_state == "idle":
+            message = f"🔋 {timestamp}: charging stopped."
+            print(f"📢 Sending Discord Notification: {message}")
+            logging.info(message)
+            send_discord_notification(message)
+            save_last_state(new_state)  # Reset state
+
+        # **Send energy consumption message if charging stopped normally**
+        if last_state == "charging" and new_state == "idle" and total_energy_wh is not None:
+            elapsed_time = current_time - start_time if start_time else 0
+            elapsed_formatted = format_duration(elapsed_time)
+            session_energy_wh = total_energy_wh - stored_power if stored_power is not None else total_energy_wh
+
+            logging.debug(f"🔍 Stored Power: {stored_power}, Calculated Session Energy: {session_energy_wh}")
+            logging.debug(f"⚡ elapsed Time: {elapsed_formatted}")
+
+            if stored_power > total_energy_wh:
+                logging.warning(f"⚠️ Charger reset detected! Stored Power ({stored_power}) > Total Energy ({total_energy_wh}). Resetting stored power.")
+                stored_power = 0
+
+            if session_energy_wh < 0:
+                logging.warning(f"⚠️ Negative session energy detected: {session_energy_wh} Wh. Resetting to total_energy_wh.")
+                session_energy_wh = total_energy_wh
+
+            if stored_power == 0 or session_energy_wh == stored_power:
+                message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
+            else:
+                message = f"🔍 {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
+
+            print(f"📢 Sending Discord Notification: {message}")
+            logging.info(message)
+            send_discord_notification(message)
+
+    except Exception as e:
+        error_message = f"🚨 ALERT: Unexpected error in main(): {e}"
+        logging.critical(error_message)
+        send_discord_notification(error_message)
 
     finally:
         driver.quit()
