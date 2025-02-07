@@ -250,7 +250,7 @@ def main():
                 logging.warning(f"⚠️ Negative session energy detected: {session_energy_wh} Wh. Resetting to total_energy_wh.")
                 session_energy_wh = total_energy_wh
 
-            if stored_power == 0 or session_energy_wh == stored_power:
+            if stored_power == 0 or session_energy_wh == total_energy_wh:
                 message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
             else:
                 message = f"🔍 {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
