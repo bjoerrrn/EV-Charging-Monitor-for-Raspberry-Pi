@@ -9,6 +9,7 @@
 - Uses **Selenium** to extract data dynamically.
 - Sends notifications to **Discord** when charging starts, stops, and after 5 minutes: charging rate.
 - Sends a notification to **Discord** after charging stopped, summarizing consumed energy and time.
+- Sends a notification to **Discord** when the cable was connected or disconnected.
 - **Prevents false positives** by only detecting charging above **1.0 kW**.
 - **Handles missing values gracefully**.
 
@@ -64,17 +65,21 @@ Save and exit.
 
 📢 Discord Notifications
 ```
+🔌 02.02.25, 21:50: Cable connected.
 ⚡ 02.02.25, 22:20: charging started.
 ⏳ charging power: 2.30 kW
 🔋 02.02.25, 22:30: charging stopped.
 🔍 consumed: 1.25 kWh in 00:10 h
+🔌 02.02.25, 23:50: Cable disconnected.
 ```
 
 ```
+🔌 02.02.25, 09:50: Cable connected.
 ⚡ 02.02.25, 22:20: charging started.
 ⏳ charging power: 3.55 kW
 🔋 02.02.25, 23:30: charging stopped.
 🔍 consumed: 3.75 kWh of 15.92 kWh in 01:10 h
+🔌 02.02.25, 23:50: Cable disconnected.
 ```
 
 ### **📝 Logging**
