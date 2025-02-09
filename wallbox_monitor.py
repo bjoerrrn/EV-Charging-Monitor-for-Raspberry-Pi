@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.1.0
+# v1.1.1
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -250,7 +250,7 @@ def main():
                 logging.warning(f"⚠️ Negative session energy detected: {session_energy_wh} Wh. Resetting to total_energy_wh.")
                 session_energy_wh = total_energy_wh
 
-            if stored_power == 0 or session_energy_wh == total_energy_wh:
+            if stored_power == 0 or abs(session_energy_wh - total_energy_wh) < 0.01:
                 message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
             else:
                 message = f"🔍 {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
