@@ -72,7 +72,7 @@ Save and exit.
 🔋 02.02.25, 22:30: charging stopped.
 🔍 consumed: 1.25 kWh in 00:10 h
 🔌 02.02.25, 23:50: Cable disconnected.
-💶 Totally consumed: 1.25 kWh = 0.44 €
+💶 total: 1.25 kWh = 0.44 €
 ```
 
 ```
@@ -82,7 +82,7 @@ Save and exit.
 🔋 02.02.25, 23:30: charging stopped.
 🔍 consumed: 3.75 kWh of 15.92 kWh in 01:10 h
 🔌 02.02.25, 23:50: Cable disconnected.
-💶 Totally consumed: 15.92 kWh = 5.57 €
+💶 total: 15.92 kWh = 5.57 €
 ```
 
 ### **📝 Logging**
