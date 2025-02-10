@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.1.2
+# v1.1.1
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -202,8 +202,15 @@ def main():
 
         if total_energy_wh is None and last_state not in ["disconnected", None]:
             send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
-            send_energy_summary(stored_power)
+        
+            # Save stored_power in a temp variable before state change
+            previous_stored_power = stored_power
+        
             save_last_state("disconnected")
+        
+            # Now send energy summary without losing stored_power
+            send_energy_summary(previous_stored_power)
+        
             new_state = "disconnected"
 
         elif total_energy_wh is not None and last_state == "disconnected":
@@ -224,12 +231,14 @@ def main():
             save_last_state(new_state, total_energy_wh)
 
             if total_energy_wh is not None:
-                elapsed_time = current_time - start_time if start_time else 0
+                elapsed_time = max(current_time - start_time, 60) if start_time else 60  # Ensure at least 1 minute
                 elapsed_formatted = format_duration(elapsed_time)
 
                 if stored_power is None or last_state == "idle":
-                    stored_power = total_energy_wh  # Keep previous session energy when idle
-                session_energy_wh = total_energy_wh - stored_power
+                    previous_stored_power = total_energy_wh  # Store previous session energy before resetting
+                    stored_power = total_energy_wh
+                
+                session_energy_wh = total_energy_wh - previous_stored_power  # Correct energy difference calculation
 
                 if session_energy_wh < 0:
                     session_energy_wh = total_energy_wh  
