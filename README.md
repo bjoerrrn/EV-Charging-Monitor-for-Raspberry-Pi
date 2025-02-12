@@ -21,7 +21,7 @@ On a **Raspberry Pi**, run:
 ```bash
 sudo apt update
 sudo apt install -y chromium-browser chromium-chromedriver
-pip install requests selenium beautifulsoup4 urllib3
+sudo apt install -y python3-requests python3-selenium python3-bs4 python3-urllib3
 ```
 
 ### **2️⃣ Clone This Repository**
