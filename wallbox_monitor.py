@@ -199,18 +199,17 @@ def main():
         current_time = time.time()
 
         print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, {total_energy_wh}")
+        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / notified: {notified}, New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}")
 
         if total_energy_wh is None and last_state not in ["disconnected", None]:
             send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
         
             # Save stored_power in a temp variable before state change
-            previous_stored_power = stored_power
-        
-            save_last_state("disconnected")
-        
+            previous_stored_power = stored_power if stored_power is not None else 0
             # Now send energy summary without losing stored_power
             send_energy_summary(previous_stored_power)
-        
+            
+            save_last_state("disconnected")
             new_state = "disconnected"
 
         elif total_energy_wh is not None and last_state == "disconnected":
@@ -233,6 +232,9 @@ def main():
             if total_energy_wh is not None:
                 elapsed_time = max(current_time - start_time, 60) if start_time else 60  # Ensure at least 1 minute
                 elapsed_formatted = format_duration(elapsed_time)
+                
+                # Ensure previous_stored_power is always set before use
+                previous_stored_power = stored_power if stored_power is not None else 0
 
                 if stored_power is None or last_state == "idle":
                     previous_stored_power = total_energy_wh  # Store previous session energy before resetting
