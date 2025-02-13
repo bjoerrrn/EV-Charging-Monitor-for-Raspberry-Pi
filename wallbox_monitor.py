@@ -5,6 +5,9 @@
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
 
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 import os
 import logging
 import time
@@ -25,7 +28,7 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "wallbox_monitor.log")
 STATE_FILE = "/tmp/wallbox_state.txt"
 
 # Logging setup
-log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0)
+log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0, encoding="utf-8")
 log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logging.basicConfig(level=logging.INFO, handlers=[log_handler])
 
@@ -57,7 +60,7 @@ def get_browser():
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    service = Service("/usr/lib/chromium-browser/chromedriver")
+    service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
 
 def send_discord_notification(message):
