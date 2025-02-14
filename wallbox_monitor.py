@@ -207,11 +207,8 @@ def main():
         if total_energy_wh is None and last_state not in ["disconnected", None]:
             send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
         
-            # Save stored_power in a temp variable before state change
-            previous_stored_power = stored_power if stored_power is not None else 0
-            # Now send energy summary without losing stored_power
-            send_energy_summary(previous_stored_power)
-            
+            # Send energy summary before state reset
+            send_energy_summary(stored_power)
             save_last_state("disconnected")
             new_state = "disconnected"
 
@@ -226,6 +223,12 @@ def main():
         if last_state != "charging" and new_state == "charging":
             send_discord_notification(f"⚡ {timestamp}: charging started.")
             save_last_state(new_state, charging_rate, notified=False)
+            
+        # Send charging rate once & update `notified`
+        if last_state == "charging" and not notified:
+            send_discord_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
+            notified = True  # Mark as notified to avoid duplicate messages
+            save_last_state(new_state, charging_rate, notified=True)
 
         # Handle charging stop
         if last_state == "charging" and new_state == "idle":
@@ -236,17 +239,8 @@ def main():
                 elapsed_time = max(current_time - start_time, 60) if start_time else 60  # Ensure at least 1 minute
                 elapsed_formatted = format_duration(elapsed_time)
                 
-                # Ensure previous_stored_power is always set before use
-                previous_stored_power = stored_power if stored_power is not None else 0
-
-                if stored_power is None or last_state == "idle":
-                    previous_stored_power = total_energy_wh  # Store previous session energy before resetting
-                    stored_power = total_energy_wh
-                
-                session_energy_wh = total_energy_wh - previous_stored_power  # Correct energy difference calculation
-
-                if session_energy_wh < 0:
-                    session_energy_wh = total_energy_wh  
+                previous_stored_power = stored_power if stored_power is not None else total_energy_wh or 0
+                session_energy_wh = max(total_energy_wh - previous_stored_power, 0)  # Ensure no negative values
 
                 if format_energy(session_energy_wh) == format_energy(total_energy_wh):
                     message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
