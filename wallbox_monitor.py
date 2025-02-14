@@ -28,9 +28,12 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "wallbox_monitor.log")
 STATE_FILE = "/tmp/wallbox_state.txt"
 
 # Logging setup
-log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0, encoding="utf-8")
-log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+def setup_logging():
+    log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0, encoding="utf-8")
+    log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+
+setup_logging()
 
 def load_config():
     """Loads credentials and configuration from the .credo file."""
@@ -43,17 +46,16 @@ def load_config():
     config.read(config_path)
 
     try:
-        wallbox_url = config.get("CREDENTIALS", "WALLBOX_URL")
-        discord_webhook_url = config.get("CREDENTIALS", "DISCORD_WEBHOOK_URL")
-        fixed_price = float(config.get("CREDENTIALS", "FIXED_PRICE", fallback="0")) or 0
+        return {
+            "WALLBOX_URL": config.get("CREDENTIALS", "WALLBOX_URL"),
+            "DISCORD_WEBHOOK_URL": config.get("CREDENTIALS", "DISCORD_WEBHOOK_URL"),
+            "FIXED_PRICE": float(config.get("CREDENTIALS", "FIXED_PRICE", fallback="0")) or 0
+        }
     except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
         logging.error(f"Configuration error: {e}")
         raise SystemExit(f"Error loading credentials: {e}")
 
-    return wallbox_url, discord_webhook_url, fixed_price
-
-# Load Config at the Start of the Script
-WALLBOX_URL, DISCORD_WEBHOOK_URL, FIXED_PRICE = load_config()
+CONFIG = load_config()
 
 def get_browser():
     options = webdriver.ChromeOptions()
@@ -67,7 +69,7 @@ def send_discord_notification(message):
     print(f"📢 Sending Discord Notification: {message}")
     payload = {"content": message}
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        requests.post(CONFIG["DISCORD_WEBHOOK_URL"], json=payload, timeout=5)
         logging.info(f"Sent Discord notification: {message}")
     except requests.RequestException as e:
         print(f"Error sending Discord notification: {e}")
@@ -88,21 +90,51 @@ def german_timestamp():
     return datetime.now().strftime("%d.%m.%y, %H:%M")
 
 def get_last_state():
-    """Reads the last state and ensures total_energy_wh is retained when idle."""
+    """Reads the last state and ensures data integrity."""
     try:
         with open(STATE_FILE, "r") as f:
             data = f.read().strip()
-            if data.startswith("charging:"):
-                parts = data.split(":")
-                return "charging", float(parts[1]), float(parts[2]), bool(int(parts[3]))
-            elif data.startswith("idle:"):
-                parts = data.split(":")
-                return "idle", None, float(parts[1]), False  # Keep total_energy_wh
-            return data, None, None, False
-    except FileNotFoundError:
-        with open(STATE_FILE, "w") as f:
-            f.write("idle")
-        return "idle", None, None, False
+
+        if data.startswith("charging:"):
+            parts = data.split(":")
+            if len(parts) == 4:
+                _, start_time, stored_power, notified = parts
+                return {
+                    "state": "charging",
+                    "start_time": float(start_time),
+                    "stored_power": float(stored_power),
+                    "notified": bool(int(notified)),
+                }
+
+        elif data.startswith("idle:"):
+            parts = data.split(":")
+            if len(parts) == 2:
+                _, stored_power = parts
+                return {
+                    "state": "idle",
+                    "start_time": None,
+                    "stored_power": float(stored_power),
+                    "notified": False,
+                }
+
+        elif data == "disconnected":
+            return {
+                "state": "disconnected",
+                "start_time": None,
+                "stored_power": 0.0,
+                "notified": False,
+            }
+
+    except (FileNotFoundError, ValueError, IndexError):
+        logging.error("State file corrupted or missing. Resetting to default.")
+
+    # Ensure a valid return structure if parsing fails
+    return {
+        "state": "idle",
+        "start_time": None,
+        "stored_power": 0.0,
+        "notified": False,
+    }
 
 def save_last_state(state, charging_power=0.0, total_energy_wh=None, notified=False):
     """Stores the latest state, ensuring `total_energy_wh` is retained when idle."""
@@ -122,19 +154,16 @@ def send_energy_summary(stored_power):
         return  # Nothing to summarize
 
     total_consumed_kwh = stored_power / 1000  # Convert Wh → kWh
-    price_eur = total_consumed_kwh * FIXED_PRICE
+    price_eur = total_consumed_kwh * CONFIG["FIXED_PRICE"]
 
-    if FIXED_PRICE > 0:
-        summary_message = f"💶 total: {format_energy(stored_power)} = {price_eur:.2f} €"
-    else:
-        summary_message = f"💶 total: {format_energy(stored_power)}"
+    summary_message = f"💶 total: {format_energy(stored_power)}" + (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
 
     send_discord_notification(summary_message)
 
 def fetch_charging_status(driver):
     """Fetches charging rate and total energy from the charger."""
     try:
-        driver.get(WALLBOX_URL)
+        driver.get(CONFIG["WALLBOX_URL"])
         charging_rate = None
         total_energy_wh = None
         last_exception = None
@@ -165,9 +194,6 @@ def fetch_charging_status(driver):
                 except TimeoutException:
                     total_energy_wh = None  # Energy data unavailable (cable unplugged)
 
-                # Debug logging
-                logging.debug(f"Attempt {attempt + 1}: Charging Rate = {charging_rate}, Total Energy = {total_energy_wh}")
-
                 # Exit loop early if both values are found
                 if charging_rate is not None and total_energy_wh is not None:
                     break
@@ -197,38 +223,45 @@ def main():
 
     try:
         charging_rate, total_energy_wh = fetch_charging_status(driver)
-        last_state, start_time, stored_power, notified = get_last_state()
+        
+        state_data = get_last_state()
+        last_state = state_data["state"]
+        start_time = state_data["start_time"]
+        stored_power = state_data["stored_power"]
+        notified = state_data["notified"]
+        
         timestamp = german_timestamp()
         current_time = time.time()
 
         print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, {total_energy_wh}")
         logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / notified: {notified}, New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}")
 
-        if total_energy_wh is None and last_state not in ["disconnected", None]:
-            send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
-        
-            # Send energy summary before state reset
-            send_energy_summary(stored_power)
-            save_last_state("disconnected")
+        # Handle cable connection and disconnection
+        if total_energy_wh is None:
+            if last_state != "disconnected":
+                send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
+                send_energy_summary(stored_power)
+                save_last_state("disconnected")
             new_state = "disconnected"
-
-        elif total_energy_wh is not None and last_state == "disconnected":
-            send_discord_notification(f"🔌 {timestamp}: cable connected.") 
-            save_last_state("idle", total_energy_wh=total_energy_wh)
-            new_state = "idle" if charging_rate < 1.0 else "charging"
+            return  # Exit early, no further processing needed
         else:
+            if last_state == "disconnected":
+                send_discord_notification(f"🔌 {timestamp}: cable connected.") 
+                save_last_state("idle", total_energy_wh=total_energy_wh)
             new_state = "idle" if charging_rate < 1.0 else "charging"
+            return  # Exit early, no further processing needed
 
         # Handle charging start
         if last_state != "charging" and new_state == "charging":
             send_discord_notification(f"⚡ {timestamp}: charging started.")
             save_last_state(new_state, charging_rate, notified=False)
+            return  # Exit early, no further processing needed
             
         # Send charging rate once & update `notified`
-        if last_state == "charging" and not notified:
+        if last_state == "charging" and not notified and charging_rate > 0:
             send_discord_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
-            notified = True  # Mark as notified to avoid duplicate messages
             save_last_state(new_state, charging_rate, notified=True)
+            return  # Exit early, no further processing needed
 
         # Handle charging stop
         if last_state == "charging" and new_state == "idle":
@@ -239,8 +272,8 @@ def main():
                 elapsed_time = max(current_time - start_time, 60) if start_time else 60  # Ensure at least 1 minute
                 elapsed_formatted = format_duration(elapsed_time)
                 
-                previous_stored_power = stored_power if stored_power is not None else total_energy_wh or 0
-                session_energy_wh = max(total_energy_wh - previous_stored_power, 0)  # Ensure no negative values
+                previous_stored_power = stored_power or total_energy_wh or 0
+                session_energy_wh = max(total_energy_wh - previous_stored_power, 0)
 
                 if format_energy(session_energy_wh) == format_energy(total_energy_wh):
                     message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
