@@ -1,4 +1,7 @@
 [CREDENTIALS]
-WALLBOX_URL = http://your-local-wallbox-ip:12800/user/user.html
-DISCORD_WEBHOOK_URL = https://your-discord-webhook-url
+WALLBOX_URL = <http://your-local-wallbox-ip:12800/user/user.html>
+DISCORD_WEBHOOK_URL = <https://your-discord-webhook-url>
 FIXED_PRICE = 0.35
+NTFY_TOPIC = <your_ntfy_topic>
+PUSHOVER_USER_KEY = <your_pushover_user_key>
+PUSHOVER_API_TOKEN = <your_pushover_api_token>
