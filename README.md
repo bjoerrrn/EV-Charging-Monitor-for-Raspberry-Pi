@@ -7,10 +7,11 @@
 ## Features
 - Reads charging rate and consumed energy from a web-based wallbox interface.
 - Uses **Selenium** to extract data dynamically.
-- Sends notifications to **Discord** when charging starts, stops, and after 5 minutes: charging rate.
-- Sends a notification to **Discord** after charging stopped, summarizing consumed energy and time.
+- Supported notification channels: Discord, ntfy, Pushover
+- Sends notifications when charging starts, stops, and after 5 minutes: charging rate.
+- Sends a notification after charging stopped, summarizing consumed energy and time.
 - If a fixed price per kWh is configured, the energy consumed between cable connected/disconnected will be summarized in Euro.
-- Sends a notification to **Discord** when the cable was connected or disconnected.
+- Sends a notification when the cable was connected or disconnected.
 - **Prevents false positives** by only detecting charging above **1.0 kW**.
 - **Handles missing values gracefully**.
 
@@ -34,13 +35,24 @@ cd wallbox-monitor/
 
 Open wallbox_monitor.credo and set:
 -	Wallbox URL: Change
-```bash
-WALLBOX_URL = "http://<your-local-wallbox-ip>:12800/user/user.html"
+```
+WALLBOX_URL = http://<your-local-wallbox-ip>:12800/user/user.html
 ```
 
 -	Discord Webhook: Replace
-```bash
-DISCORD_WEBHOOK_URL = "<your-discord-webhook-url>"
+```
+DISCORD_WEBHOOK_URL = <your-discord-webhook-url>
+```
+
+- and/or ntfy:
+```
+NTFY_TOPIC = <your_ntfy_topic>
+```
+
+- and/or Pushover:
+```
+PUSHOVER_USER_KEY = <your_pushover_user_key>
+PUSHOVER_API_TOKEN = <your_pushover_api_token>
 ```
 
 ### **4️⃣ Run the Script**
