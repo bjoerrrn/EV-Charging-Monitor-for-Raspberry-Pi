@@ -76,16 +76,7 @@ Save and exit.
 
 ### **📡 Expected Output**
 
-📢 Discord Notifications
-```
-🔌 02.02.25, 21:50: Cable connected.
-⚡ 02.02.25, 22:20: charging started.
-⏳ charging power: 2.30 kW
-🔋 02.02.25, 22:30: charging stopped.
-🔍 consumed: 1.25 kWh in 00:10 h
-🔌 02.02.25, 23:50: Cable disconnected.
-💶 total: 1.25 kWh = 0.44 €
-```
+📢 Notifications
 
 ```
 🔌 02.02.25, 09:50: Cable connected.
