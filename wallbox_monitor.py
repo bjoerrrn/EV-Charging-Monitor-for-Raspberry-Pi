@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.1.1
+# v1.2.0
 # shellrecharge-wallbox-monitor - by bjoerrrn
 # github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
 # This script is licensed under GNU GPL version 3.0 or above
@@ -90,30 +90,44 @@ def german_timestamp():
     return datetime.now().strftime("%d.%m.%y, %H:%M")
 
 def get_last_state():
-    """Reads the last state and ensures data integrity."""
+    """Reads the last state and ensures `total_energy_wh_for_summary` is retained persistently."""
     try:
         with open(STATE_FILE, "r") as f:
             data = f.read().strip()
 
         if data.startswith("charging:"):
             parts = data.split(":")
-            if len(parts) == 4:
-                _, start_time, stored_power, notified = parts
+            if len(parts) >= 5:  # Ensure we get total_energy_wh_for_summary
+                _, start_time, stored_power, notified, total_energy_wh_for_summary = parts
                 return {
                     "state": "charging",
                     "start_time": float(start_time),
                     "stored_power": float(stored_power),
+                    "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
                     "notified": bool(int(notified)),
                 }
 
         elif data.startswith("idle:"):
             parts = data.split(":")
-            if len(parts) == 2:
-                _, stored_power = parts
+            if len(parts) >= 3:  # Ensure we get total_energy_wh_for_summary
+                _, stored_power, total_energy_wh_for_summary = parts
                 return {
                     "state": "idle",
                     "start_time": None,
                     "stored_power": float(stored_power),
+                    "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
+                    "notified": False,
+                }
+
+        elif data.startswith("disconnected:"):
+            parts = data.split(":")
+            if len(parts) == 2:
+                _, total_energy_wh_for_summary = parts
+                return {
+                    "state": "disconnected",
+                    "start_time": None,
+                    "stored_power": 0.0,
+                    "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
                     "notified": False,
                 }
 
@@ -122,6 +136,7 @@ def get_last_state():
                 "state": "disconnected",
                 "start_time": None,
                 "stored_power": 0.0,
+                "total_energy_wh_for_summary": None,  # No energy recorded
                 "notified": False,
             }
 
@@ -133,32 +148,40 @@ def get_last_state():
         "state": "idle",
         "start_time": None,
         "stored_power": 0.0,
+        "total_energy_wh_for_summary": None,
         "notified": False,
     }
 
-def save_last_state(state, charging_power=0.0, total_energy_wh=None, notified=False):
-    """Stores the latest state, ensuring `total_energy_wh` is retained when idle."""
+def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False):
+    """Stores the latest state, ensuring `total_energy_wh_for_summary` is retained persistently until used."""
     with open(STATE_FILE, "w") as f:
         if state == "charging":
-            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}")
+            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
         elif state == "idle" and total_energy_wh is not None:
-            f.write(f"idle:{total_energy_wh:.2f}")  # Preserve total energy
+            f.write(f"idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}")  # Preserve total energy & summary
         elif state == "disconnected":
-            f.write("disconnected")
+            if total_energy_wh_for_summary is not None:
+                f.write(f"disconnected:{total_energy_wh_for_summary:.2f}")  # Store for summary
+            else:
+                f.write("disconnected")  # Normal case after summary
         else:
             f.write("idle")
             
-def send_energy_summary(stored_power):
+def send_energy_summary(total_energy_wh_for_summary):
     """Sends a summary of total consumed energy when the cable is disconnected."""
-    if stored_power is None or stored_power <= 0:
+    if total_energy_wh_for_summary is None or total_energy_wh_for_summary <= 0:
         return  # Nothing to summarize
 
-    total_consumed_kwh = stored_power / 1000  # Convert Wh → kWh
+    total_consumed_kwh = total_energy_wh_for_summary / 1000  # Convert Wh → kWh
     price_eur = total_consumed_kwh * CONFIG["FIXED_PRICE"]
 
-    summary_message = f"💶 total: {format_energy(stored_power)}" + (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
+    summary_message = f"💶 total: {format_energy(total_energy_wh_for_summary)}" + \
+                      (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
 
     send_discord_notification(summary_message)
+
+    # Reset `total_energy_wh_for_summary` after reporting to avoid reuse
+    save_last_state("disconnected", total_energy_wh_for_summary=None)
 
 def fetch_charging_status(driver):
     """Fetches charging rate and total energy from the charger."""
@@ -169,7 +192,7 @@ def fetch_charging_status(driver):
         last_exception = None
 
         # Retry every second for up to 30 seconds
-        for attempt in range(30):
+        for attempt in range(10):
             try:
                 charging_element = WebDriverWait(driver, 2).until(
                     EC.presence_of_element_located((By.ID, "chargingRate"))
@@ -223,45 +246,55 @@ def main():
 
     try:
         charging_rate, total_energy_wh = fetch_charging_status(driver)
-        
+
         state_data = get_last_state()
         last_state = state_data["state"]
         start_time = state_data["start_time"]
         stored_power = state_data["stored_power"]
+        total_energy_wh_for_summary = state_data["total_energy_wh_for_summary"]
         notified = state_data["notified"]
-        
+
         timestamp = german_timestamp()
         current_time = time.time()
 
-        print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, {total_energy_wh}")
-        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / notified: {notified}, New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}")
+        print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, Total Energy: {total_energy_wh}")
+        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / Notified: {notified}, New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}, Total Energy for Summary: {total_energy_wh_for_summary}")
 
-        # Handle cable connection and disconnection
+        # **STORE total_energy_wh_for_summary WHENEVER total_energy_wh IS NOT NONE**
+        # required for the summary report after cable disconnection
+        if total_energy_wh is not None:
+            save_last_state(last_state, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh)
+
+        # Handle cable disconnection
         if total_energy_wh is None:
             if last_state != "disconnected":
                 send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
-                send_energy_summary(stored_power)
+                
+                # Use last known `total_energy_wh_for_summary`
+                send_energy_summary(total_energy_wh_for_summary)
+
+                # Set state to disconnected
                 save_last_state("disconnected")
-            new_state = "disconnected"
+            
             return  # Exit early, no further processing needed
-        else:
-            if last_state == "disconnected":
-                send_discord_notification(f"🔌 {timestamp}: cable connected.") 
-                save_last_state("idle", total_energy_wh=total_energy_wh)
-            new_state = "idle" if charging_rate < 1.0 else "charging"
-            return  # Exit early, no further processing needed
+            
+        # Handle cable connection
+        if last_state == "disconnected":
+            send_discord_notification(f"🔌 {timestamp}: cable connected.") 
+            save_last_state("idle", total_energy_wh=total_energy_wh)
+
+        # Determine new state
+        new_state = "idle" if charging_rate < 1.0 else "charging"
 
         # Handle charging start
         if last_state != "charging" and new_state == "charging":
             send_discord_notification(f"⚡ {timestamp}: charging started.")
             save_last_state(new_state, charging_rate, notified=False)
-            return  # Exit early, no further processing needed
-            
+
         # Send charging rate once & update `notified`
         if last_state == "charging" and not notified and charging_rate > 0:
             send_discord_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
             save_last_state(new_state, charging_rate, notified=True)
-            return  # Exit early, no further processing needed
 
         # Handle charging stop
         if last_state == "charging" and new_state == "idle":
