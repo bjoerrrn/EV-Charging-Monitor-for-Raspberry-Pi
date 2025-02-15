@@ -46,11 +46,22 @@ def load_config():
     config.read(config_path)
 
     try:
-        return {
+        cfg = {
             "WALLBOX_URL": config.get("CREDENTIALS", "WALLBOX_URL"),
-            "DISCORD_WEBHOOK_URL": config.get("CREDENTIALS", "DISCORD_WEBHOOK_URL"),
+            "DISCORD_WEBHOOK_URL": config.get("CREDENTIALS", "DISCORD_WEBHOOK_URL", fallback="").strip(),
+            "NTFY_TOPIC": config.get("CREDENTIALS", "NTFY_TOPIC", fallback="").strip(),
+            "PUSHOVER_USER_KEY": config.get("CREDENTIALS", "PUSHOVER_USER_KEY", fallback="").strip(),
+            "PUSHOVER_API_TOKEN": config.get("CREDENTIALS", "PUSHOVER_API_TOKEN", fallback="").strip(),
             "FIXED_PRICE": float(config.get("CREDENTIALS", "FIXED_PRICE", fallback="0")) or 0
         }
+
+        logging.info(f"Loaded configuration: Wallbox URL: {cfg['WALLBOX_URL']}, "
+                     f"Discord: {'Enabled' if cfg['DISCORD_WEBHOOK_URL'] else 'Disabled'}, "
+                     f"Ntfy: {'Enabled' if cfg['NTFY_TOPIC'] else 'Disabled'}, "
+                     f"Pushover: {'Enabled' if cfg['PUSHOVER_USER_KEY'] and cfg['PUSHOVER_API_TOKEN'] else 'Disabled'}, "
+                     f"Fixed Price: {cfg['FIXED_PRICE']} €/kWh")
+
+        return cfg
     except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
         logging.error(f"Configuration error: {e}")
         raise SystemExit(f"Error loading credentials: {e}")
@@ -65,6 +76,40 @@ def get_browser():
     service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
 
+def send_ntfy_notification(message):
+    """Sends a notification using ntfy if configured."""
+    ntfy_topic = CONFIG["NTFY_TOPIC"]
+    if not ntfy_topic:
+        return  # Skip if ntfy is not configured
+
+    print(f"📢 Sending NTFY Notification: {message}")
+    try:
+        requests.post(f"https://ntfy.sh/{ntfy_topic}", data=message.encode("utf-8"), timeout=5)
+        logging.info(f"Sent NTFY notification: {message}")
+    except requests.RequestException as e:
+        print(f"Error sending NTFY notification: {e}")
+        logging.error(f"Error sending NTFY notification: {e}")
+
+def send_pushover_notification(message):
+    """Sends a notification using Pushover if configured."""
+    user_key = CONFIG["PUSHOVER_USER_KEY"]
+    api_token = CONFIG["PUSHOVER_API_TOKEN"]
+    if not user_key or not api_token:
+        return  # Skip if Pushover is not configured
+
+    print(f"📢 Sending Pushover Notification: {message}")
+    payload = {
+        "token": api_token,
+        "user": user_key,
+        "message": message
+    }
+    try:
+        requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=5)
+        logging.info(f"Sent Pushover notification: {message}")
+    except requests.RequestException as e:
+        print(f"Error sending Pushover notification: {e}")
+        logging.error(f"Error sending Pushover notification: {e}")
+
 def send_discord_notification(message):
     print(f"📢 Sending Discord Notification: {message}")
     payload = {"content": message}
@@ -74,6 +119,16 @@ def send_discord_notification(message):
     except requests.RequestException as e:
         print(f"Error sending Discord notification: {e}")
         logging.error(f"Error sending Discord notification: {e}")
+
+def send_notification(message):
+    """Sends a notification to all configured services (Discord, ntfy, Pushover)."""
+    logging.info(f"📢 Sending notification: {message}")
+
+    send_discord_notification(message)
+    send_ntfy_notification(message)
+    send_pushover_notification(message)
+
+    logging.info(f"✅ Notification sent successfully: {message}")
 
 def format_energy(wh):
     if wh is None:
@@ -170,6 +225,7 @@ def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energ
 def send_energy_summary(total_energy_wh_for_summary):
     """Sends a summary of total consumed energy when the cable is disconnected."""
     if total_energy_wh_for_summary is None or total_energy_wh_for_summary <= 0:
+        logging.info("Skipping energy summary (no energy recorded).")
         return  # Nothing to summarize
 
     total_consumed_kwh = total_energy_wh_for_summary / 1000  # Convert Wh → kWh
@@ -178,7 +234,11 @@ def send_energy_summary(total_energy_wh_for_summary):
     summary_message = f"💶 total: {format_energy(total_energy_wh_for_summary)}" + \
                       (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
 
-    send_discord_notification(summary_message)
+    logging.info(f"📢 Sending energy summary: {summary_message}")
+
+    send_notification(summary_message)
+    
+    logging.info("✅ Energy summary sent. Resetting stored energy summary.")
 
     # Reset `total_energy_wh_for_summary` after reporting to avoid reuse
     save_last_state("disconnected", total_energy_wh_for_summary=None)
@@ -238,7 +298,7 @@ def fetch_charging_status(driver):
     except Exception as e:
         fatal_message = f"🚨 ALERT: {e}"
         logging.critical(fatal_message)
-        send_discord_notification(fatal_message)
+        send_notification(fatal_message)
         return None, None
 
 def main():
@@ -258,7 +318,9 @@ def main():
         current_time = time.time()
 
         print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, Total Energy: {total_energy_wh}")
-        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / Notified: {notified}, New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}, Total Energy for Summary: {total_energy_wh_for_summary}")
+        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / Notified: {notified}, "
+                     f"New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}, "
+                     f"Total Energy for Summary: {total_energy_wh_for_summary}")
 
         # **STORE total_energy_wh_for_summary WHENEVER total_energy_wh IS NOT NONE**
         # required for the summary report after cable disconnection
@@ -268,7 +330,7 @@ def main():
         # Handle cable disconnection
         if total_energy_wh is None:
             if last_state != "disconnected":
-                send_discord_notification(f"🔌 {timestamp}: cable disconnected.")
+                send_notification(f"🔌 {timestamp}: cable disconnected.")
                 
                 # Use last known `total_energy_wh_for_summary`
                 send_energy_summary(total_energy_wh_for_summary)
@@ -280,7 +342,7 @@ def main():
             
         # Handle cable connection
         if last_state == "disconnected":
-            send_discord_notification(f"🔌 {timestamp}: cable connected.") 
+            send_notification(f"🔌 {timestamp}: cable connected.") 
             save_last_state("idle", total_energy_wh=total_energy_wh)
 
         # Determine new state
@@ -288,17 +350,17 @@ def main():
 
         # Handle charging start
         if last_state != "charging" and new_state == "charging":
-            send_discord_notification(f"⚡ {timestamp}: charging started.")
+            send_notification(f"⚡ {timestamp}: charging started.")
             save_last_state(new_state, charging_rate, notified=False)
 
         # Send charging rate once & update `notified`
         if last_state == "charging" and not notified and charging_rate > 0:
-            send_discord_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
+            send_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
             save_last_state(new_state, charging_rate, notified=True)
 
         # Handle charging stop
         if last_state == "charging" and new_state == "idle":
-            send_discord_notification(f"🔋 {timestamp}: charging stopped.")
+            send_notification(f"🔋 {timestamp}: charging stopped.")
             save_last_state(new_state, total_energy_wh)
 
             if total_energy_wh is not None:
@@ -313,10 +375,10 @@ def main():
                 else:
                     message = f"🔍 {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
 
-                send_discord_notification(message)
+                send_notification(message)
 
     except Exception as e:
-        send_discord_notification(f"🚨 ALERT: {e}")
+        send_notification(f"🚨 ALERT: {e}")
 
     finally:
         driver.quit()
