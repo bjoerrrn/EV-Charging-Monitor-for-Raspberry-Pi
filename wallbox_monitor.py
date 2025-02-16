@@ -121,12 +121,17 @@ def send_discord_notification(message):
         logging.error(f"Error sending Discord notification: {e}")
 
 def send_notification(message):
-    """Sends a notification to all configured services (Discord, ntfy, Pushover)."""
+    """Sends a notification to all configured services, skipping disabled ones."""
     logging.info(f"📢 Sending notification: {message}")
 
-    send_discord_notification(message)
-    send_ntfy_notification(message)
-    send_pushover_notification(message)
+    if CONFIG["DISCORD_WEBHOOK_URL"]:
+        send_discord_notification(message)
+    
+    if CONFIG["NTFY_TOPIC"]:
+        send_ntfy_notification(message)
+    
+    if CONFIG["PUSHOVER_USER_KEY"] and CONFIG["PUSHOVER_API_TOKEN"]:
+        send_pushover_notification(message)
 
     logging.info(f"✅ Notification sent successfully: {message}")
 
@@ -186,6 +191,15 @@ def get_last_state():
                     "notified": False,
                 }
 
+        elif data == "disconnected":  
+            return {
+                "state": "disconnected",
+                "start_time": None,
+                "stored_power": 0.0,
+                "total_energy_wh_for_summary": None,
+                "notified": False,
+            }
+
     except (FileNotFoundError, ValueError, IndexError):
         logging.error("State file corrupted or missing. Resetting to default.")
 
@@ -198,19 +212,16 @@ def get_last_state():
     }
 
 def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False):
-    """Stores the latest state, ensuring `notified` is retained persistently."""
+    """Stores the latest state, ensuring correct persistence of disconnected state."""
     with open(STATE_FILE, "w") as f:
         if state == "charging":
             f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
         elif state == "idle" and total_energy_wh is not None:
-            f.write(f"idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")  
+            f.write(f"idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")
         elif state == "disconnected":
-            if total_energy_wh_for_summary is not None:
-                f.write(f"disconnected:{total_energy_wh_for_summary:.2f}:{int(notified)}")  
-            else:
-                f.write("disconnected")
+            f.write(f"disconnected:{total_energy_wh_for_summary or 0.0}:{int(notified)}") 
         else:
-            f.write(f"idle:0.0:0.0:{int(notified)}")  
+            f.write("idle:0.0:0.0:{int(notified)}")
             
 def send_energy_summary(total_energy_wh_for_summary):
     """Sends a summary of total consumed energy when the cable is disconnected."""
@@ -326,7 +337,7 @@ def main():
             return  # Exit early, no further processing needed
             
         # Handle cable connection
-        if last_state == "disconnected":
+        if last_state == "disconnected" and total_energy_wh is not None:
             send_notification(f"🔌 {timestamp}: cable connected.") 
             save_last_state("idle", total_energy_wh=total_energy_wh)
 
