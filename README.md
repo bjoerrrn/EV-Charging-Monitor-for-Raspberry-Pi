@@ -30,8 +30,8 @@ sudo apt install -y python3-requests python3-selenium python3-bs4 python3-urllib
 
 ### **2️⃣ Clone This Repository**
 ```bash
-git clone https://github.com/bjoerrrn/wallbox-monitor.git
-cd wallbox-monitor/
+git clone https://github.com/bjoerrrn/wallbox-monitoring.git
+cd wallbox-monitoring/
 ```
 
 ### **3️⃣ Configure Your Script**
