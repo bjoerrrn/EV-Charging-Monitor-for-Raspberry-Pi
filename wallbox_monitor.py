@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 # v1.2.0
-# shellrecharge-wallbox-monitor - by bjoerrrn
-# github: https://github.com/bjoerrrn/shellrecharge-wallbox-monitor
+# wallbox-monitoring - by bjoerrrn
+# github: https://github.com/bjoerrrn/wallbox-monitoring
 # This script is licensed under GNU GPL version 3.0 or above
 
 import sys
