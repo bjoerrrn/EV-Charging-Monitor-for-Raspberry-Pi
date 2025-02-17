@@ -98,21 +98,33 @@ Check logs in:
 cat /home/pi/wallbox-monitor/wallbox_monitor.log
 ```
 
+If you want to show additional debug output in wallbox_monitor.log, add this in crontab:
+```bash
+DEBUG_MODE=True
+```
+
+.. or in your shell to debug manually:
+```bash
+export DEBUG_MODE=True
+./wallbox_monitor.py
+```
+
 ### **🛠 Troubleshooting**
 
-Selenium Fails: “NoSuchDriverException”
+#### Selenium Fails: “NoSuchDriverException”
 
 Try reinstalling chromedriver:
 ```bash
 sudo apt install --reinstall chromium-chromedriver
 ```
 
-Charging or Consumed Energy Not Detected
+#### Charging or Consumed Energy Not Detected
 
 Run debug script:
 ```bash
 python3 test_consumed_debug.py
 ```
+
 
 ### **🤝 Contributing**
 
