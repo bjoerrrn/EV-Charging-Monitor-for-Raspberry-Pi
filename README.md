@@ -12,11 +12,10 @@ Currently supported wallboxes:
 - Uses **Selenium** to extract data dynamically.
 - Supported notification channels: Discord, ntfy, Pushover
 - Sends notifications when charging starts, stops, and after 5 minutes: charging rate.
-- Sends a notification after charging stopped, summarizing consumed energy and time.
+- Sends a notification after charging stopped or interrupted, summarizing consumed energy and time.
 - If a fixed price per kWh is configured, the energy consumed between cable connected/disconnected will be summarized in Euro.
-- Sends a notification when the cable was connected or disconnected.
-- **Prevents false positives** by only detecting charging above **1.0 kW**.
-- **Handles missing values gracefully**.
+- Sends a notification when the cable was connected or disconnected. Also handles short-time unavailabilities of the status page to avoid false-positives.
+- Typically, wallboxes sometimes consume energy as long as a cable is connected. **Prevents false positives** by only detecting charging rates above **1.0 kW**.
 
 ## Setup & Installation  
 
