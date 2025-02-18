@@ -27,19 +27,39 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(SCRIPT_DIR, "wallbox_monitor.log")
 STATE_FILE = "/tmp/wallbox_state.txt"
 
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
+
 # Logging setup
 def setup_logging():
-    log_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=0, encoding="utf-8")
-    log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    logging.basicConfig(level=logging.INFO, handlers=[log_handler])
+    global logger  # Make logger accessible globally
+    logger = logging.getLogger()  # Get the root logger
+
+    log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+    # Create a file handler
+    file_handler = logging.FileHandler(LOG_FILE, mode="a")
+    file_handler.setFormatter(log_formatter)
+
+    # Create a stream handler (for debugging)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+
+    logger.setLevel(logging.INFO)  # Set log level to INFO
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)  # Also print logs to the console
 
 setup_logging()
+
+def debug(message):
+    """Logs additional info messages, when DEBUG_MODE=true."""
+    if DEBUG_MODE: 
+        logger.info(message)
 
 def load_config():
     """Loads credentials and configuration from the .credo file."""
     config_path = os.path.join(SCRIPT_DIR, "wallbox_monitor.credo")
     if not os.path.exists(config_path):
-        logging.error("Configuration file missing.")
+        logger.error("Configuration file missing.")
         raise SystemExit("Error: Missing 'wallbox_monitor.credo'.")
 
     config = configparser.ConfigParser()
@@ -55,15 +75,15 @@ def load_config():
             "FIXED_PRICE": float(config.get("CREDENTIALS", "FIXED_PRICE", fallback="0")) or 0
         }
 
-        logging.info(f"Loaded configuration: Wallbox URL: {cfg['WALLBOX_URL']}, "
-                     f"Discord: {'Enabled' if cfg['DISCORD_WEBHOOK_URL'] else 'Disabled'}, "
-                     f"Ntfy: {'Enabled' if cfg['NTFY_TOPIC'] else 'Disabled'}, "
-                     f"Pushover: {'Enabled' if cfg['PUSHOVER_USER_KEY'] and cfg['PUSHOVER_API_TOKEN'] else 'Disabled'}, "
-                     f"Fixed Price: {cfg['FIXED_PRICE']} €/kWh")
+        debug(f"Loaded configuration: Wallbox URL: {cfg['WALLBOX_URL']}, "
+             f"Discord: {'Enabled' if cfg['DISCORD_WEBHOOK_URL'] else 'Disabled'}, "
+             f"Ntfy: {'Enabled' if cfg['NTFY_TOPIC'] else 'Disabled'}, "
+             f"Pushover: {'Enabled' if cfg['PUSHOVER_USER_KEY'] and cfg['PUSHOVER_API_TOKEN'] else 'Disabled'}, "
+             f"Fixed Price: {cfg['FIXED_PRICE']} €/kWh")
 
         return cfg
     except (configparser.NoSectionError, configparser.NoOptionError, ValueError) as e:
-        logging.error(f"Configuration error: {e}")
+        logger.error(f"Configuration error: {e}")
         raise SystemExit(f"Error loading credentials: {e}")
 
 CONFIG = load_config()
@@ -85,10 +105,10 @@ def send_ntfy_notification(message):
     print(f"📢 Sending NTFY Notification: {message}")
     try:
         requests.post(f"https://ntfy.sh/{ntfy_topic}", data=message.encode("utf-8"), timeout=5)
-        logging.info(f"Sent NTFY notification: {message}")
+        debug(f"Sent NTFY notification: {message}")
     except requests.RequestException as e:
         print(f"Error sending NTFY notification: {e}")
-        logging.error(f"Error sending NTFY notification: {e}")
+        logger.error(f"Error sending NTFY notification: {e}")
 
 def send_pushover_notification(message):
     """Sends a notification using Pushover if configured."""
@@ -101,28 +121,29 @@ def send_pushover_notification(message):
     payload = {
         "token": api_token,
         "user": user_key,
-        "message": message
+        "message": message,
+        "ttl": 86400
     }
     try:
         requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=5)
-        logging.info(f"Sent Pushover notification: {message}")
+        debug(f"Sent Pushover notification: {message}")
     except requests.RequestException as e:
         print(f"Error sending Pushover notification: {e}")
-        logging.error(f"Error sending Pushover notification: {e}")
+        logger.error(f"Error sending Pushover notification: {e}")
 
 def send_discord_notification(message):
     print(f"📢 Sending Discord Notification: {message}")
     payload = {"content": message}
     try:
         requests.post(CONFIG["DISCORD_WEBHOOK_URL"], json=payload, timeout=5)
-        logging.info(f"Sent Discord notification: {message}")
+        debug(f"Sent Discord notification: {message}")
     except requests.RequestException as e:
         print(f"Error sending Discord notification: {e}")
-        logging.error(f"Error sending Discord notification: {e}")
+        logger.error(f"Error sending Discord notification: {e}")
 
 def send_notification(message):
     """Sends a notification to all configured services, skipping disabled ones."""
-    logging.info(f"📢 Sending notification: {message}")
+    debug(f"📢 Sending notification: {message}")
 
     if CONFIG["DISCORD_WEBHOOK_URL"]:
         send_discord_notification(message)
@@ -133,7 +154,7 @@ def send_notification(message):
     if CONFIG["PUSHOVER_USER_KEY"] and CONFIG["PUSHOVER_API_TOKEN"]:
         send_pushover_notification(message)
 
-    logging.info(f"✅ Notification sent successfully: {message}")
+    logger.info(f"✅ Notification sent successfully: {message}")
 
 def format_energy(wh):
     if wh is None:
@@ -161,7 +182,7 @@ def get_last_state():
                 _, start_time, stored_power, notified, total_energy_wh_for_summary = parts
                 return {
                     "state": "charging",
-                    "start_time": float(start_time),
+                    "start_time": float(start_time),  
                     "stored_power": float(stored_power),
                     "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
                     "notified": bool(int(notified)), 
@@ -170,25 +191,25 @@ def get_last_state():
         elif data.startswith("idle:"):
             parts = data.split(":")
             if len(parts) >= 3:
-                _, stored_power, total_energy_wh_for_summary = parts
+                _, stored_power, total_energy_wh_for_summary, notified = parts
                 return {
                     "state": "idle",
                     "start_time": None,
                     "stored_power": float(stored_power),
                     "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
-                    "notified": False, 
+                    "notified": bool(int(notified)), 
                 }
 
-        elif data.startswith("disconnected:"):
+        elif data.startswith("disconnected:"): 
             parts = data.split(":")
-            if len(parts) == 2:
-                _, total_energy_wh_for_summary = parts
+            if len(parts) == 3:
+                _, total_energy_wh_for_summary, notified = parts
                 return {
                     "state": "disconnected",
                     "start_time": None,
                     "stored_power": 0.0,
                     "total_energy_wh_for_summary": float(total_energy_wh_for_summary),
-                    "notified": False,
+                    "notified": bool(int(notified)), 
                 }
 
         elif data == "disconnected":  
@@ -201,7 +222,7 @@ def get_last_state():
             }
 
     except (FileNotFoundError, ValueError, IndexError):
-        logging.error("State file corrupted or missing. Resetting to default.")
+        logger.error("State file corrupted or missing. Resetting to default.")
 
     return {
         "state": "idle",
@@ -211,22 +232,25 @@ def get_last_state():
         "notified": False,
     }
 
-def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False):
-    """Stores the latest state, ensuring correct persistence of disconnected state."""
+def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False, start_time=None):
     with open(STATE_FILE, "w") as f:
         if state == "charging":
-            f.write(f"charging:{time.time()}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
+            f.write(f"charging:{start_time}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
+            debug(f".. save_last_state(): charging:{start_time}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
         elif state == "idle" and total_energy_wh is not None:
             f.write(f"idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")
+            debug(f".. save_last_state(): idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")
         elif state == "disconnected":
-            f.write(f"disconnected:{total_energy_wh_for_summary or 0.0}:{int(notified)}") 
+            f.write(f"disconnected:{total_energy_wh_for_summary if total_energy_wh_for_summary is not None else '0.0'}:{int(notified)}")
+            debug(f".. save_last_state(): disconnected:{total_energy_wh_for_summary if total_energy_wh_for_summary is not None else '0.0'}:{int(notified)}")
         else:
-            f.write("idle:0.0:0.0:{int(notified)}")
+            f.write(f"idle:0.0:0.0:{int(notified)}")
+            debug(f".. save_last_state(): idle:0.0:0.0:{int(notified)}")
             
 def send_energy_summary(total_energy_wh_for_summary):
     """Sends a summary of total consumed energy when the cable is disconnected."""
     if total_energy_wh_for_summary is None or total_energy_wh_for_summary <= 0:
-        logging.info("Skipping energy summary (no energy recorded).")
+        debug("Skipping energy summary (no energy recorded).")
         return  # Nothing to summarize
 
     total_consumed_kwh = total_energy_wh_for_summary / 1000  # Convert Wh → kWh
@@ -235,14 +259,14 @@ def send_energy_summary(total_energy_wh_for_summary):
     summary_message = f"💶 total: {format_energy(total_energy_wh_for_summary)}" + \
                       (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
 
-    logging.info(f"📢 Sending energy summary: {summary_message}")
-
+    debug(f"📢 Sending energy summary: {summary_message}")
+    
     send_notification(summary_message)
     
-    logging.info("✅ Energy summary sent. Resetting stored energy summary.")
+    logger.info("✅ Energy summary sent. Resetting stored energy summary.")
 
     # Reset `total_energy_wh_for_summary` after reporting to avoid reuse
-    save_last_state("disconnected", total_energy_wh_for_summary=None)
+    save_last_state("disconnected", total_energy_wh_for_summary=0)
 
 def fetch_charging_status(driver):
     """Fetches charging rate and total energy from the charger."""
@@ -284,21 +308,21 @@ def fetch_charging_status(driver):
 
             except (NoSuchElementException, TimeoutException) as e:
                 last_exception = e  # Store last error for later reporting
-                logging.warning(f"Attempt {attempt + 1}: Element not found or timeout - {e}")
+                logger.warning(f"Attempt {attempt + 1}: Element not found or timeout - {e}")
 
             except Exception as e:
                 last_exception = e
-                logging.error(f"Attempt {attempt + 1}: Unexpected error - {e}")
+                logger.error(f"Attempt {attempt + 1}: Unexpected error - {e}")
 
             time.sleep(1)  # Wait before retrying
 
-        logging.info(f"🔄 Fetched Status - Charging Rate: {charging_rate} kW, Total Energy: {format_energy(total_energy_wh)}")
+        debug(f"🔄 Fetched Status - Charging Rate: {charging_rate} kW, Total Energy: {format_energy(total_energy_wh)}")
 
         return charging_rate, total_energy_wh
 
     except Exception as e:
         fatal_message = f"🚨 ALERT: {e}"
-        logging.critical(fatal_message)
+        logger.critical(fatal_message)
         send_notification(fatal_message)
         return None, None
 
@@ -314,14 +338,27 @@ def main():
         stored_power = state_data["stored_power"]
         total_energy_wh_for_summary = state_data["total_energy_wh_for_summary"]
         notified = state_data["notified"]
+        
+        if total_energy_wh is None:
+            total_energy_wh = get_last_state().get("total_energy_wh") 
 
         timestamp = german_timestamp()
         current_time = time.time()
 
         print(f"🔄 Last State: {last_state}, New Fetch: {charging_rate}, Total Energy: {total_energy_wh}")
-        logging.info(f".. debug -- Last State: {last_state} / Stored Power: {stored_power} / Notified: {notified}, "
-                     f"New Fetch - Charging Rate: {charging_rate}, Total Energy: {total_energy_wh}, "
-                     f"Total Energy for Summary: {total_energy_wh_for_summary}")
+        debug(f".. get_last_state() #1 \n-- state file: \n   Last State: {last_state} \n   Start Time: {start_time} \n   Stored Power: {stored_power} \n   Total Energy for Summary: {total_energy_wh_for_summary} \n   Notified: {notified} \n-- new fetch: \n   Charging Rate: {charging_rate} \n   Total Energy: {total_energy_wh}")
+        
+        # Handle cable disconnection DURING charging
+        if last_state == "charging" and total_energy_wh is None:
+            send_notification(f"🔌 {timestamp}: charging interrupted - cable unplugged.")
+
+            # Use the last known total_energy_wh_for_summary
+            send_energy_summary(total_energy_wh_for_summary)
+
+            # Set state to "disconnected" instead of transitioning through "idle"
+            save_last_state("disconnected")
+
+            return  # Exit early since cable unplugging overrides other transitions
 
         # Handle cable disconnection
         if total_energy_wh is None:
@@ -347,29 +384,31 @@ def main():
         # **STORE total_energy_wh_for_summary WHENEVER total_energy_wh IS NOT NONE**
         # required for the summary report after cable disconnection
         if total_energy_wh is not None:
-            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified)
+            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, notified=notified)
 
         # Handle charging start
         if last_state != "charging" and new_state == "charging":
             send_notification(f"⚡ {timestamp}: charging started.")
-            save_last_state(new_state, charging_rate, notified=False)
+            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=False, start_time=current_time)
 
         # notify once per session about charging rate
         if last_state == "charging" and not notified and charging_rate > 0:
             send_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
-            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=True)
+            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=True, start_time=start_time)
 
         # Handle charging stop
         if last_state == "charging" and new_state == "idle":
             send_notification(f"🔋 {timestamp}: charging stopped.")
-            save_last_state(new_state, total_energy_wh)
+            save_last_state(new_state, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, start_time=start_time)
 
-            if total_energy_wh is not None:
-                elapsed_time = max(current_time - start_time, 60) if start_time else 60  # Ensure at least 1 minute
+            if total_energy_wh is not None and start_time:
+                elapsed_time = max(current_time - start_time, 60)  
                 elapsed_formatted = format_duration(elapsed_time)
                 
                 previous_stored_power = stored_power or total_energy_wh or 0
                 session_energy_wh = max(total_energy_wh - previous_stored_power, 0)
+                
+                debug(f".. session-summary \n-- stored_power: {stored_power} \n   total_energy_wh: {total_energy_wh} \n   previous_stored_power: {previous_stored_power} \n   session_energy_wh: {session_energy_wh} \n   start_time: {start_time} \n   current_time: {current_time} \n   elapsed_time: {elapsed_time}")
 
                 if format_energy(session_energy_wh) == format_energy(total_energy_wh):
                     message = f"🔍 {format_energy(session_energy_wh)} in {elapsed_formatted}"
@@ -377,6 +416,16 @@ def main():
                     message = f"🔍 {format_energy(session_energy_wh)} of {format_energy(total_energy_wh)} in {elapsed_formatted}"
 
                 send_notification(message)
+
+        # get current values from the state file in order to log it
+        state_data = get_last_state()
+        last_state = state_data["state"]
+        start_time = state_data["start_time"]
+        stored_power = state_data["stored_power"]
+        total_energy_wh_for_summary = state_data["total_energy_wh_for_summary"]
+        notified = state_data["notified"]
+
+        debug(f".. get_last_state() #2 \n-- state file: \n   Last State: {last_state} \n   Start Time: {start_time} \n   Stored Power: {stored_power} \n   Total Energy for Summary: {total_energy_wh_for_summary} \n   Notified: {notified} \n-- new fetch: \n   Charging Rate: {charging_rate} \n   Total Energy: {total_energy_wh}")
 
     except Exception as e:
         send_notification(f"🚨 ALERT: {e}")
