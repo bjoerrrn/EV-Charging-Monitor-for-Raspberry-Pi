@@ -223,6 +223,7 @@ def get_last_state():
 
     except (FileNotFoundError, ValueError, IndexError):
         logger.error("State file corrupted or missing. Resetting to default.")
+        logger.error(f"State file content: {data}")  # Debugging
 
     return {
         "state": "idle",
@@ -235,8 +236,8 @@ def get_last_state():
 def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False, start_time=None):
     with open(STATE_FILE, "w") as f:
         if state == "charging":
-            f.write(f"charging:{start_time}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
-            debug(f".. save_last_state(): charging:{start_time}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
+            f.write(f"charging:{start_time if start_time is not None else 0}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
+            debug(f"charging:{start_time if start_time is not None else 0}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}")
         elif state == "idle" and total_energy_wh is not None:
             f.write(f"idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")
             debug(f".. save_last_state(): idle:{total_energy_wh:.2f}:{total_energy_wh_for_summary or 0.0}:{int(notified)}")
@@ -349,7 +350,7 @@ def main():
         debug(f".. get_last_state() #1 \n-- state file: \n   Last State: {last_state} \n   Start Time: {start_time} \n   Stored Power: {stored_power} \n   Total Energy for Summary: {total_energy_wh_for_summary} \n   Notified: {notified} \n-- new fetch: \n   Charging Rate: {charging_rate} \n   Total Energy: {total_energy_wh}")
         
         # Handle cable disconnection DURING charging
-        if last_state == "charging" and total_energy_wh is None:
+        if last_state == "charging" and (total_energy_wh is None or charging_rate == 0):
             send_notification(f"🔌 {timestamp}: charging interrupted - cable unplugged.")
 
             # Use the last known total_energy_wh_for_summary
@@ -387,12 +388,12 @@ def main():
             save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, notified=notified)
 
         # Handle charging start
-        if last_state != "charging" and new_state == "charging":
+        if last_state != "charging" and new_state == "charging" and not notified:
             send_notification(f"⚡ {timestamp}: charging started.")
-            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=False, start_time=current_time)
+            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, start_time=current_time)
 
         # notify once per session about charging rate
-        if last_state == "charging" and not notified and charging_rate > 0:
+        if last_state == "charging" and charging_rate > 0 and not notified:
             send_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
             save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=True, start_time=start_time)
 
