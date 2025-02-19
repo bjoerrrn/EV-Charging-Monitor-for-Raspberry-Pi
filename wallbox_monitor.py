@@ -335,7 +335,7 @@ def main():
         # 🚨 If disconnect detected DURING charging, set repeat_check and exit
         if last_state == "charging" and (total_energy_wh is None or charging_rate == 0):
             if not repeat_check:  # First detection, re-run once
-                send_notification(f"🔌 {timestamp}: charging interruption detected, verifying...")
+                debug(f"🔌 {timestamp}: charging interruption detected, verifying...")
                 save_last_state("charging", charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, start_time=start_time, repeat_check=True)
                 return  # Exit, script will retry next run
 
@@ -368,11 +368,11 @@ def main():
 
         # 📌 Store latest total energy for summary
         if total_energy_wh is not None:
-            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, notified=notified, repeat_check=False)
+            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, notified=notified, repeat_check=False, start_time=start_time)
 
         # ⚡ Handle charging start
         if last_state != "charging" and new_state == "charging":
-            send_notification(f"⚡ {timestamp}: charging started.")
+            send_notification(f"🪫 {timestamp}: charging started.")
             save_last_state("charging", charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=False, start_time=current_time)
 
         # ⚡ Notify charging rate once per session
