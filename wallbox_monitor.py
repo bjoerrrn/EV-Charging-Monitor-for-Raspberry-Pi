@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.2.0
+# v1.2.1
 # wallbox-monitoring - by bjoerrrn
 # github: https://github.com/bjoerrrn/wallbox-monitoring
 # This script is licensed under GNU GPL version 3.0 or above
@@ -215,7 +215,7 @@ def get_last_state():
     }
 
 
-def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=None, notified=False, start_time=None, repeat_check=False):
+def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=0.0, notified=False, start_time=None, repeat_check=False):
     with open(STATE_FILE, "w") as f:
         if state in ["charging", "idle"]:
             start_time_str = str(start_time) if state == "charging" and start_time is not None else "0"
@@ -301,10 +301,12 @@ def fetch_charging_status(driver):
 
         debug(f"🔄 Fetched Status - Charging Rate: {charging_rate} kW, Total Energy: {format_energy(total_energy_wh)}")
 
-        return charging_rate, total_energy_wh
+        if charging_rate is None:
+            logger.warning("⚠️ Warning: charging_rate is None. Setting to 0.0.")
+        return charging_rate if charging_rate is not None else 0.0, total_energy_wh
 
     except Exception as e:
-        fatal_message = f"🚨 ALERT: {e}"
+        fatal_message = f"🚨 ALERT (fetch): {e}"
         logger.critical(fatal_message)
         send_notification(fatal_message)
         return None, None
@@ -364,7 +366,7 @@ def main():
             save_last_state("idle", total_energy_wh=total_energy_wh, repeat_check=False)
 
         # 🔋 Determine new state
-        new_state = "idle" if charging_rate < 1.0 else "charging"
+        new_state = "idle" if not isinstance(charging_rate, (int, float)) or charging_rate < 1.0 else "charging"
 
         # 📌 Store latest total energy for summary
         if total_energy_wh is not None:
@@ -405,7 +407,9 @@ def main():
         debug(f".. get_last_state() #2 \n-- state file: \n   Last State: {state_data['state']} \n   Start Time: {state_data['start_time']} \n   Stored Power: {state_data['stored_power']} \n   Total Energy for Summary: {state_data['total_energy_wh_for_summary']} \n   Notified: {state_data['notified']} \n   Repeat Check: {state_data['repeat_check']} \n-- new fetch: \n   Charging Rate: {charging_rate} \n   Total Energy: {total_energy_wh}")
 
     except Exception as e:
-        send_notification(f"🚨 ALERT: {e}")
+        fatal_message = (f"🚨 ALERT (main): {e}")
+        logger.critical(fatal_message)
+        send_notification(fatal_message)
 
     finally:
         driver.quit()
