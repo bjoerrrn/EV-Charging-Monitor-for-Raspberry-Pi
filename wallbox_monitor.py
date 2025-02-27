@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.2.1
+# v1.2.2
 # wallbox-monitoring - by bjoerrrn
 # github: https://github.com/bjoerrrn/wallbox-monitoring
 # This script is licensed under GNU GPL version 3.0 or above
@@ -122,7 +122,7 @@ def send_pushover_notification(message):
         "token": api_token,
         "user": user_key,
         "message": message,
-        "ttl": 86400
+        "ttl": 43200
     }
     try:
         requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=5)
@@ -214,13 +214,12 @@ def get_last_state():
         "repeat_check": False,
     }
 
-
-def save_last_state(state, charging_power=0.0, total_energy_wh=None, total_energy_wh_for_summary=0.0, notified=False, start_time=None, repeat_check=False):
+def save_last_state(state, stored_power=0.0, total_energy_wh_for_summary=0.0, notified=False, start_time=None, repeat_check=False):
     with open(STATE_FILE, "w") as f:
         if state in ["charging", "idle"]:
             start_time_str = str(start_time) if state == "charging" and start_time is not None else "0"
-            f.write(f"{state}:{start_time_str}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}:{int(repeat_check)}")
-            debug(f".. save_last_state(): {state}:{start_time_str}:{charging_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}:{int(repeat_check)}")
+            f.write(f"{state}:{start_time_str}:{stored_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}:{int(repeat_check)}")
+            debug(f".. save_last_state(): {state}:{start_time_str}:{stored_power:.2f}:{int(notified)}:{total_energy_wh_for_summary or 0.0}:{int(repeat_check)}")
 
         elif state == "disconnected":
             f.write(f"disconnected:{total_energy_wh_for_summary if total_energy_wh_for_summary is not None else '0.0'}:{int(notified)}:{int(repeat_check)}")
@@ -243,9 +242,7 @@ def send_energy_summary(total_energy_wh_for_summary):
                       (f" = {price_eur:.2f} €" if CONFIG["FIXED_PRICE"] > 0 else "")
 
     debug(f"📢 Sending energy summary: {summary_message}")
-    
     send_notification(summary_message)
-    
     logger.info("✅ Energy summary sent. Resetting stored energy summary.")
 
     # Reset `total_energy_wh_for_summary` after reporting to avoid reuse
@@ -338,7 +335,7 @@ def main():
         if last_state == "charging" and (total_energy_wh is None or charging_rate == 0):
             if not repeat_check:  # First detection, re-run once
                 debug(f"🔌 {timestamp}: charging interruption detected, verifying...")
-                save_last_state("charging", charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, start_time=start_time, repeat_check=True)
+                save_last_state("charging", stored_power=stored_power, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, start_time=start_time, repeat_check=True)
                 return  # Exit, script will retry next run
 
             # Second run, confirmed interruption
@@ -350,8 +347,8 @@ def main():
         # 🚨 If normal disconnect detected (idle state), set repeat_check and exit
         if total_energy_wh is None and last_state == "idle":
             if not repeat_check:  # First detection, re-run once
-                send_notification(f"🔌 {timestamp}: cable disconnect detected, verifying...")
-                save_last_state("idle", total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, repeat_check=True)
+                debug(f"🔌 {timestamp}: cable disconnect detected, verifying...")
+                save_last_state("idle", stored_power=stored_power, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=notified, repeat_check=True)
                 return  # Exit, script will retry next run
 
             # Second run, confirmed disconnection
@@ -363,29 +360,29 @@ def main():
         # 🚀 Handle cable reconnection
         if last_state == "disconnected" and total_energy_wh is not None:
             send_notification(f"🔌 {timestamp}: cable connected.") 
-            save_last_state("idle", total_energy_wh=total_energy_wh, repeat_check=False)
+            save_last_state("idle", stored_power=stored_power, repeat_check=False)
 
         # 🔋 Determine new state
         new_state = "idle" if not isinstance(charging_rate, (int, float)) or charging_rate < 1.0 else "charging"
 
         # 📌 Store latest total energy for summary
         if total_energy_wh is not None:
-            save_last_state(new_state, charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, notified=notified, repeat_check=False, start_time=start_time)
+            save_last_state(new_state, stored_power=stored_power, total_energy_wh_for_summary=total_energy_wh, notified=notified, repeat_check=False, start_time=start_time)
 
         # ⚡ Handle charging start
         if last_state != "charging" and new_state == "charging":
             send_notification(f"🪫 {timestamp}: charging started.")
-            save_last_state("charging", charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=False, start_time=current_time)
+            save_last_state("charging", stored_power=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=False, start_time=current_time)
 
         # ⚡ Notify charging rate once per session
         if last_state == "charging" and charging_rate > 0 and not notified:
             send_notification(f"⚡ {timestamp}: charging rate {charging_rate} kW")
-            save_last_state("charging", charging_power=charging_rate, total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=True, start_time=start_time)
+            save_last_state("charging", stored_power=stored_power, total_energy_wh_for_summary=total_energy_wh_for_summary, notified=True, start_time=start_time)
 
         # 🔋 Handle charging stop
         if last_state == "charging" and new_state == "idle":
             send_notification(f"🔋 {timestamp}: charging stopped.")
-            save_last_state("idle", total_energy_wh=total_energy_wh, total_energy_wh_for_summary=total_energy_wh, start_time=start_time)
+            save_last_state("idle", stored_power=stored_power, total_energy_wh_for_summary=total_energy_wh, start_time=start_time)
 
             if total_energy_wh is not None and start_time:
                 elapsed_time = max(current_time - start_time, 60)  
