@@ -108,6 +108,41 @@ export DEBUG_MODE=True
 ./wallbox_monitor.py
 ```
 
+#### **External Logging Script Support**
+
+You can configure an external script to be executed whenever the charging state changes. The script will receive a JSON payload containing session details.
+
+1️⃣ Edit your 'wallbox_monitor.credo' file
+
+Add the following line with the path to your external script:
+```
+EXTERNAL_LOG_SCRIPT = /path/to/your/log_script.sh
+```
+
+2️⃣ Ensure your script is executable
+
+```bash
+chmod +x /path/to/your/log_script.sh
+```
+
+3️⃣ JSON Data Format Passed to the Script:
+
+```json
+{
+    "state": "charging",
+    "start_time": "1739959209.48",
+    "stored_power": 1.26,
+    "total_energy_kWh": 20.0,
+    "notified": 1,
+    "repeat_check": 0
+}
+```
+
+5️⃣ Run and Verify
+
+Whenever the script detects a change in the charging state, it will execute log_script.sh, passing the charging data in JSON format.
+
+
 ### **🛠 Troubleshooting**
 
 #### Selenium Fails: “NoSuchDriverException”
