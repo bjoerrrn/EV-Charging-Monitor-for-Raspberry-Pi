@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# v1.3
+# v1.3.1
 # wallbox-monitoring - by bjoerrrn
 # github: https://github.com/bjoerrrn/wallbox-monitoring
 # This script is licensed under GNU GPL version 3.0 or above
@@ -175,6 +175,7 @@ def german_timestamp():
     return datetime.now().strftime("%d.%m.%y, %H:%M")
     
 def get_last_state():
+    data = ""  # initialize before try
     try:
         with open(STATE_FILE, "r") as f:
             data = f.read().strip()
@@ -205,10 +206,11 @@ def get_last_state():
                     "repeat_check": bool(int(repeat_check)),  # NEW FLAG
                 }
 
-    except (FileNotFoundError, ValueError, IndexError):
+    except (FileNotFoundError, ValueError, IndexError) as e:
         logger.error("State file corrupted or missing. Resetting to default.")
-        logger.error(f"State file content: {data}")  # Debugging
-
+        logger.error(f"Exception: {e}, File content: {data}")
+        
+    # Always return fallback
     return {
         "state": "idle",
         "start_time": None,
