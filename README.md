@@ -2,7 +2,7 @@
 
 # Wallbox Monitor  
 
-**A Python script for monitoring a local wallbox charging station and sending notifications via Discord.**  
+**A Python script for monitoring a local wallbox charging station and sending notifications via Discord, ntfy, or Pushover.**  
 
 Currently supported wallboxes: 
 * NewMotion / Shell Recharge [tested with Business Pro 2.1]
