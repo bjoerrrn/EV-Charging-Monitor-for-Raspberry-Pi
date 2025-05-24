@@ -68,15 +68,15 @@ Extending this script to support new wallbox models is a primary goal, but it re
 
 If you own a wallbox model not currently supported, and you're willing to assist, we'd appreciate your help in gathering the necessary data. This often involves:
 
-1.  **Providing remote access:**
-    To properly integrate a new wallbox, we often need temporary remote access to a Raspberry Pi connected to that wallbox. This allows us to inspect the web interface, analyze network traffic, and identify the data points needed for monitoring.
-    * **What we need:** Typically, secure SSH access, or in some cases, remote desktop (like VNC/TeamViewer) to your Raspberry Pi.
+1.  **Providing secure remote access to your local network/Wallbox interface:**
+    To properly integrate a new wallbox, we often need temporary, secure remote access to the wallbox's local web interface or API. This allows us to inspect the web interface, analyze network traffic, and identify the data points needed for monitoring.
+    * **What we need:** Typically, this means access to your local network (e.g., via VPN) or a securely exposed (e.g., port-forwarded) web interface/API endpoint of your wallbox. This allows us to run the Selenium-based analysis or directly interact with the wallbox's local API.
     * **Our commitment:** We will only use this access to analyze the wallbox's communication and integrate its data into the script. We will not access or store any personal data. Access will be temporary and you can revoke it at any time once the integration is complete.
     * **Contact:** Please reach out to me directly via [Discord](https://discordapp.com/users/371404709262786561) to discuss the details and arrange secure access. We can discuss options like an NDA if you have privacy concerns, although for an open-source project, this is less common.
 
 2.  **Providing technical details (if remote access isn't possible):**
-    If remote access is not feasible for you, you might be able to provide information manually:
-    * **Screenshots of your wallbox's web interface:** Especially the charging status, current power, and consumed energy.
+    If secure remote access is not feasible for you, you might be able to provide information manually:
+    * **Screenshots of your wallbox's local web interface:** Especially the charging status, current power, and consumed energy.
     * **Browser developer console output:** Network requests (XHR/Fetch) and their responses while charging is active.
     * **Any publicly available API documentation** for your specific wallbox model.
 
