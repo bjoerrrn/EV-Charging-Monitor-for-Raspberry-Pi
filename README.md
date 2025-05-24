@@ -7,6 +7,8 @@
 Currently supported wallboxes: 
 * NewMotion / Shell Recharge [tested with Business Pro 2.1]
 
+If you want to support addind new EV Chargers, [read here](https://github.com/bjoerrrn/EV-Charging-Monitor-for-Raspberry-Pi/blob/main/CONTRIBUTING.md#-adding-support-for-new-wallbox-models) how to. 
+
 ## Features
 - Reads charging rate and consumed energy from a web-based wallbox interface.
 - Uses **Selenium** to extract data dynamically.
