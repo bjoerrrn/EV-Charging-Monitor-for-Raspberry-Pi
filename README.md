@@ -1,6 +1,6 @@
 ![stars](https://img.shields.io/github/stars/bjoerrrn/shellrecharge-wallbox-monitor) ![last_commit](https://img.shields.io/github/last-commit/bjoerrrn/shellrecharge-wallbox-monitor)
 
-# Wallbox Monitor  
+# EV Charging Monitor for Raspberry Pi
 
 **A Python script for monitoring a local wallbox charging station and sending notifications via Discord, ntfy, or Pushover.**  
 
@@ -34,6 +34,8 @@ cd wallbox-monitoring/
 ```
 
 ### **3️⃣ Configure Your Script**
+
+wallbox_monitor.credo: This file contains sensitive credentials, hence the .credo extension. 
 
 Open wallbox_monitor.credo and set:
 -	Wallbox URL: Change
@@ -73,6 +75,7 @@ Add the following line at the bottom:
 ```bash
 * * * * * /usr/bin/python3 /home/pi/wallbox-monitor/wallbox_monitor.py
 ```
+Replace /home/pi/wallbox-monitor/ with your actual script path.
 
 Save and exit.
 
@@ -97,9 +100,9 @@ Check logs in:
 cat /home/pi/wallbox-monitor/wallbox_monitor.log
 ```
 
-If you want to show additional debug output in wallbox_monitor.log, add this in crontab:
+If you want to show additional debug output in wallbox_monitor.log, add `DEBUG_MODE=True` in crontab:
 ```bash
-DEBUG_MODE=True
+* * * * * DEBUG_MODE=True /usr/bin/python3 /home/pi/wallbox-monitor/wallbox_monitor.py
 ```
 
 .. or in your shell to debug manually:
