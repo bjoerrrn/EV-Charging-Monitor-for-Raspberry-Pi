@@ -1,4 +1,4 @@
-![stars](https://img.shields.io/github/stars/bjoerrrn/shellrecharge-wallbox-monitor) ![last_commit](https://img.shields.io/github/last-commit/bjoerrrn/shellrecharge-wallbox-monitor)
+![stars](https://img.shields.io/github/stars/bjoerrrn/shellrecharge-wallbox-monitor) ![last_commit](https://img.shields.io/github/last-commit/bjoerrrn/shellrecharge-wallbox-monitor) ![License](https://img.shields.io/badge/License-GPL_3.0-blue.svg)
 
 # EV Charging Monitor for Raspberry Pi
 
