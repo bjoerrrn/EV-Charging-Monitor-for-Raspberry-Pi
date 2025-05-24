@@ -171,6 +171,17 @@ Feel free to open issues or pull requests to improve the script! 🚀
 
 if you want to contact me directly, feel free to do so via discord: https://discordapp.com/users/371404709262786561
 
+### ❤️ Support the Project
+
+This project is open-source and maintained in my free time. If you find this script useful and would like to support its further development, bug fixes, and the addition of new wallbox models, any contribution is greatly appreciated!
+
+You can support the project via:
+
+* **[GitHub Sponsors](https://github.com/sponsors/bjoerrrn)**
+* **[Buy Me a Coffee](https://www.buymeacoffee.com/bjoerrrn)**
+
+Your support helps cover development costs and motivates me to keep improving the Wallbox Monitor. Thank you!
+
 ### **📜 License**
 
 This project is open-source under the [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) License.
